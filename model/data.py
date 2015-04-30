@@ -474,10 +474,10 @@ def join_years(left, years, period=None):
         cond = lambda df: (df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period)
         
     df = conditional_join(left, years, left_on=['year'], right_on=['year'], condition=cond)
-    df.rename(columns={'year_right': 'year'}, inplace=True)
+    df.rename(columns={'year_y': 'year'}, inplace=True)
     return df
 
-def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix=''):
+def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix='_right'):
     left_index = left[left_on].reset_index()
     left_index.index = np.zeros(len(left_index))
     
