@@ -367,24 +367,30 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
-        inspections_tract,inspections_address = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
         
+        inspections_tract,inspections_address = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
         tests_tract = self.aggregate_tests(levels=['census_tract_id'], df=tests_subset)[0]
         tests_address = self.aggregate_tests(levels=['address_id'], years=years, period=None, df=tests_subset)[0]
         
         prefix_columns(inspections_tract, 'tract_inspections_cumulative_')
         prefix_columns(tests_tract, 'tract_tests_1y_')
+        spacetime_tract = inspections_tract.join(tests_tract, how='outer')
         
         prefix_columns(inspections_address, 'address_inspections_cumulative_')
         prefix_columns(tests_address, 'address_tests_cumulative_')
-
-        spacetime = inspections_tract.join(tests_tract, how='outer')
+        spacetime_address = inspections_address.join(tests_address, how='outer')
+        
+        left = df[['address_id', 'census_tract_id', 'join_year']].drop_duplicates()
+        spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
+        spacetime = spacetime.merge(spacetime_address, how='left', left_on=['address_id', 'join_year'], right_index=True, copy=False)
         spacetime.fillna(0, inplace=True)
+        
+        print spacetime
 
         if tract_years_scale:
             spacetime = spacetime.groupby(level='year').apply(lambda x: pd.DataFrame(preprocessing.scale(x), index=x.index, columns=x.columns))
 
-        df = df.merge(spacetime, left_on=['census_tract_id','join_year'], right_index=True, how='left', copy=False )
+        df = df.merge(spacetime, on=['address_id', 'join_year'], how='left', copy=False )
 
         # additional features
         if not address_history:
