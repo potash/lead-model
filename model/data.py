@@ -173,37 +173,16 @@ class LeadData(ModelData):
     # default exclusions set
     # TODO: organize and explain these
     EXCLUDE = {'kid_id', 'kid_first_name', 'kid_last_name', 'test_id', 'test_type', 
-       'test_kid_age_days', 'test_date', 'test_minmax', 'test_maxmax', 'test_min', 'address_id', 'census_tract_id',
+               'test_kid_age_days', 'test_date', 'test_minmax', 'test_maxmax', 'test_min', 'address_id', 'census_tract_id',
                'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method',
                'test_number', 'minmax_test_number', 'test_bll',
-    }
-    
-    TRACT_YEAR_COLUMNS = {
-            'test_count': {'numerator': 'test_count'},
-            'kid_count' : {'numerator': 'test_kid_count'},
-            'ebll_test_count' : {'numerator': 'ebll_test_count'},
-            'ebll_test_ratio' : {'numerator': 'ebll_test_count', 'denominator':'test_count'},
-            'avg_ebll' : {'numerator': lambda ty: ty.avg_ebll * ty.ebll_test_count, 'denominator' : 'ebll_test_count'},
-            'ebll_kid_count' : {'numerator': 'ebll_kid_count'},
-            'ebll_kid_ratio' : {'numerator': 'ebll_kid_count', 'denominator':'test_kid_count'},
-            
-            'inspection_count' : {'numerator' : 'inspection_count'},
-            'hazard_int_count' : {'numerator' : 'hazard_int_count'},
-            'hazard_ext_count' : {'numerator' : 'hazard_ext_count'},
-            'hazard_int_ratio' : {'numerator' : 'hazard_int_count', 'denominator': 'inspection_count'},
-            'hazard_ext_ratio' : {'numerator' : 'hazard_ext_count', 'denominator': 'inspection_count'},
-            'compliance_count' : {'numerator' : 'compliance_count'},
-            'compliance_ratio' : {'numerator' : 'compliance_count', 'denominator': 'inspection_count'},
-            # the next two features are incorrect, need to be weighted...
-            'avg_init_to_comply_days' : {'numerator' : 'avg_init_to_comply_days'},
-            'pct_inspected' : {'numerator' : 'pct_inspected'}
     }
     
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
                     'address_inspection_init_date', 'address_inspection_comply_date']
     
     def __init__(self, source, date_from, date_to, directory=None, 
-                 tables=['inspections', 'tracts', 'wards', 'tract_year', 'ward_year', 'addresses']):
+                 tables=['inspections', 'tracts', 'wards', 'addresses']):
         self.source = source
         self.directory = directory
         
@@ -320,18 +299,6 @@ class LeadData(ModelData):
         self.cv = (train,test)
         df = df[train_or_test].reset_index().copy()
         
-        # if inspection date is in the future make it null and make the inspection_null true
-        # note this is only using the *first* inspection date, which is usually close to, if not equal to, the last, but not always
-        past_inspection = (df['address_inspection_init_date'] < today)
-        df['address_inspection_init_date'] = df['address_inspection_init_date'].where(past_inspection)
-        df['address_inspection_hazard_int'] = df['address_inspection_hazard_int'].where(past_inspection)
-        df['address_inspection_hazard_ext'] = df['address_inspection_hazard_ext'].where(past_inspection)
-        df['address_inspection_null'] = df['address_inspection_null'] | (~past_inspection)
-        
-        past_compliance = (df['address_inspection_comply_date'] < today)
-        df['address_inspection_comply_date'] = df['address_inspection_comply_date'].where(past_compliance)
-        df['address_inspection_compliance'] = df['address_inspection_comply_date'].notnull().where(~df['address_inspection_null'])
-
         epoch = datetime.date.fromtimestamp(0)
         mean_age = datetime.timedelta(df[df['test_date'] < today]['test_kid_age_days'].mean())
         past_test = df.test_date < today
@@ -341,7 +308,7 @@ class LeadData(ModelData):
         df['kid_date_of_birth_month'] = df['kid_date_of_birth'].apply(lambda d: d.month)
         df['kid_birth_date'] = df['kid_date_of_birth']
     
-        for c in ['address_inspection_init', 'address_inspection_comply', 'kid_birth']:
+        for c in ['kid_birth']: #['address_inspection_init', 'address_inspection_comply', 'kid_birth']:
             df[c + '_days'] = df[c + '_date'].apply(lambda d: None if pd.isnull(d) else (d - epoch).days)
             df[c + '_days_to_test'] = pd.to_timedelta((pseudo_test_date - df[c + '_date']), 'D').astype(int)
             df.drop(c + '_date', axis=1, inplace=True)
@@ -395,7 +362,7 @@ class LeadData(ModelData):
 
         # additional features
         if not address_history:
-            exclude.update(['address_inspection_.*', 'address_test_.*'])
+            exclude.update(['address_inspections_.*', 'address_tests_.*'])
         
         if census_tract_binarize:
             exclude.remove('census_tract_id')
@@ -458,7 +425,7 @@ class LeadData(ModelData):
         ebll_test_count = lambda t: (t.test_bll > 5).astype(int)
         ebll_kid_count = lambda t: ((t.test_bll > 5) & t.test_minmax).astype(int)
         TEST_COLUMNS = {
-            'test_count': {'numerator': 1},
+            'count': {'numerator': 1},
             'kid_count': {'numerator': 'test_minmax'},
             'ebll_test_count': {'numerator': ebll_test_count},
             'ebll_test_ratio': {'numerator': ebll_test_count, 'denominator': 1},
