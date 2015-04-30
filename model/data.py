@@ -415,10 +415,7 @@ class LeadData(ModelData):
             inspections[column] = inspections[column].astype(int)
         
         inspections['year'] = inspections['init_date'].fillna(inspections['comply_date']).apply(lambda d:d.year)
-
-        years = pd.DataFrame({'year':years})
-        cond = lambda df: ((df['year_left'] <= df['year']))
-        inspections = conditional_join(inspections, years, left_on=['year'], right_on=['year'], condition=cond)
+        inspections = join_years(inspections, years)
         
         comply_not_null = inspections[inspections.comply_date.notnull()]
         inspections['comply'] = (comply_not_null['comply_date'].apply(lambda d: d.year) < comply_not_null.year)
@@ -459,13 +456,20 @@ class LeadData(ModelData):
         if df is None: df = self.kids
         
         if period > 1:
-            if years is None:
-                print 'Warning: cannot aggregate period > 1 without specifying years'
-            years = pd.DataFrame({'year':years})
-            cond = lambda df: ((df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period))
-            df = conditional_join(df, years, left_on=['year'], right_on=['year'], condition=cond)
+            df = join_years(df, years, period)
         
         return [aggregate(df, TEST_COLUMNS, index=[level, 'year']) for level in levels]
+
+def join_years(left, years, period=None):
+    years = pd.DataFrame({'year':years})
+    if period is None:
+        cond = lambda df: (df['year_left'] <= df['year_right'])
+    else:
+        cond = lambda df: (df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period)
+        
+    df = conditional_join(left, years, left_on=['year'], right_on=['year'], condition=cond)
+    df.rename(columns={'year_right': 'year'}, inplace=True)
+    return df
 
 def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix=''):
     left_index = left[left_on].reset_index()
