@@ -414,17 +414,17 @@ class LeadData(ModelData):
             inspections[column].fillna(True, inplace=True)
             inspections[column] = inspections[column].astype(int)
         
-        inspections['y'] = inspections['init_date'].fillna(inspections['comply_date']).apply(lambda d:d.year)
+        inspections['year'] = inspections['init_date'].fillna(inspections['comply_date']).apply(lambda d:d.year)
 
         years = pd.DataFrame({'year':years})
-        cond = lambda df: ((df['y'] <= df['year']))
-        inspections2 = conditional_join(inspections, years, left_on=['y'], right_on=['year'], condition=cond)
+        cond = lambda df: ((df['year_left'] <= df['year_right']))
+        inspections = conditional_join(inspections, years, left_on=['year'], right_on=['year'], condition=cond)
         
-        comply_not_null = inspections2[inspections2.comply_date.notnull()]
-        inspections2['comply'] = (comply_not_null['comply_date'].apply(lambda d: d.year) < comply_not_null.year)
-        inspections2['comply'] = inspections2['comply'].fillna(False).astype('int')
-        dt = (inspections2['comply_date'] - inspections2['init_date']).where(inspections2['comply'])
-        inspections2['days_to_compliance'] = dt[dt.notnull()] / np.timedelta64(1, 'D')
+        comply_not_null = inspections[inspections.comply_date.notnull()]
+        inspections['comply'] = (comply_not_null['comply_date'].apply(lambda d: d.year) < comply_not_null.year)
+        inspections['comply'] = inspections['comply'].fillna(False).astype('int')
+        dt = (inspections['comply_date'] - inspections['init_date']).where(inspections['comply'])
+        inspections['days_to_compliance'] = dt[dt.notnull()] / np.timedelta64(1, 'D')
         
         INSPECTION_COLUMNS = {
             'count': {'numerator':1},
@@ -440,11 +440,11 @@ class LeadData(ModelData):
         r = []
         for level in levels:
             INSPECTION_COLUMNS['pct_inspected'] = {'numerator': 1, 'denominator': level + '_res_count', 'denominator_func': np.max}
-            r.append(aggregate(inspections2, INSPECTION_COLUMNS, index=[level,'year']))
+            r.append(aggregate(inspections, INSPECTION_COLUMNS, index=[level,'year']))
             
         return r
     
-    def aggregate_tests(self, levels, years=1, df=None):
+    def aggregate_tests(self, levels, years, period=1, df=None):
         ebll_test_count = lambda t: (t.test_bll > 5).astype(int)
         ebll_kid_count = lambda t: ((t.test_bll > 5) & t.test_minmax).astype(int)
         TEST_COLUMNS = {
@@ -457,9 +457,15 @@ class LeadData(ModelData):
             'ebll_kid_ratio': {'numerator': ebll_kid_count, 'denominator': 'test_minmax'}
         }
         if df is None: df = self.kids
+        
+        if period != 1:
+            years = pd.DataFrame({'year':years})
+            cond = lambda df: ((df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period))
+            df = conditional_join(df, years, left_on=['year'], right_on=['year'], condition=cond)
+        
         return [aggregate(df, TEST_COLUMNS, index=[level, 'year']) for level in levels]
 
-def conditional_join(left, right, left_on, right_on, condition, lsuffix='left', rsuffix='right'):
+def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix='_right'):
     left_index = left[left_on].reset_index()
     left_index.index = np.zeros(len(left_index))
     
