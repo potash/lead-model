@@ -417,8 +417,8 @@ class LeadData(ModelData):
         inspections['year'] = inspections['init_date'].fillna(inspections['comply_date']).apply(lambda d:d.year)
 
         years = pd.DataFrame({'year':years})
-        cond = lambda df: ((df['year_left'] <= df['year_right']))
-        inspections = conditional_join(inspections, years, left_on=['year'], right_on=['year'], condition=cond)
+        cond = lambda df: ((df['year_left'] <= df['year']))
+        inspections = conditional_join(inspections, years, left_on=['year'], right_on=['year'], condition=cond, rsuffix='')
         
         comply_not_null = inspections[inspections.comply_date.notnull()]
         inspections['comply'] = (comply_not_null['comply_date'].apply(lambda d: d.year) < comply_not_null.year)
