@@ -405,6 +405,7 @@ class LeadData(ModelData):
         
         INSPECTION_COLUMNS = {
             'count': {'numerator':1},
+            'inspected': {'numerator':1, 'func': np.max},
             'hazard_int_count': {'numerator':'hazard_int'},
             'hazard_ext_count': {'numerator':'hazard_ext'},
             'hazard_int_ratio': {'numerator':'hazard_int', 'denominator':1},
@@ -426,6 +427,7 @@ class LeadData(ModelData):
         ebll_kid_count = lambda t: ((t.test_bll > 5) & t.test_minmax).astype(int)
         TEST_COLUMNS = {
             'count': {'numerator': 1},
+            'tested': {'numerator': 1, 'func': np.max},
             'kid_count': {'numerator': 'test_minmax'},
             'ebll_test_count': {'numerator': ebll_test_count},
             'ebll_test_ratio': {'numerator': ebll_test_count, 'denominator': 1},
