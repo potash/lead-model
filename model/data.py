@@ -366,11 +366,17 @@ class LeadData(ModelData):
             exclude.add('community_area_id')
         
         # spatio-temporal
-        inspections_tract = self.aggregate_inspections(range(year-train_years, year), levels=['census_tract_id'])[0]
+        years = range(year-train_years, year)
+        inspections_tract,inspections_address = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
+        
         tests_tract = self.aggregate_tests(levels=['census_tract_id'], df=tests_subset)[0]
-
+        tests_address = self.aggregate_tests(levels=['address_id'], years=years, period=None, df=tests_subset)[0]
+        
         prefix_columns(inspections_tract, 'tract_inspections_cumulative_')
         prefix_columns(tests_tract, 'tract_tests_1y_')
+        
+        prefix_columns(inspections_address, 'address_inspections_cumulative_')
+        prefix_columns(tests_address, 'address_tests_cumulative_')
 
         spacetime = inspections_tract.join(tests_tract, how='outer')
         spacetime.fillna(0, inplace=True)
@@ -455,7 +461,7 @@ class LeadData(ModelData):
         }
         if df is None: df = self.kids
         
-        if period > 1:
+        if period != 1:
             df = join_years(df, years, period)
         
         return [aggregate(df, TEST_COLUMNS, index=[level, 'year']) for level in levels]
