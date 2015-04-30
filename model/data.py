@@ -444,7 +444,7 @@ class LeadData(ModelData):
             
         return r
     
-    def aggregate_tests(self, levels, years, period=1, df=None):
+    def aggregate_tests(self, levels, period=1, years=None, df=None):
         ebll_test_count = lambda t: (t.test_bll > 5).astype(int)
         ebll_kid_count = lambda t: ((t.test_bll > 5) & t.test_minmax).astype(int)
         TEST_COLUMNS = {
@@ -458,7 +458,9 @@ class LeadData(ModelData):
         }
         if df is None: df = self.kids
         
-        if period != 1:
+        if period > 1:
+            if years is None:
+                print 'Warning: cannot aggregate period > 1 without specifying years'
             years = pd.DataFrame({'year':years})
             cond = lambda df: ((df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period))
             df = conditional_join(df, years, left_on=['year'], right_on=['year'], condition=cond)
