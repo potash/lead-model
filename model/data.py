@@ -261,7 +261,7 @@ class LeadData(ModelData):
                 bll_threshold=5, max_age=3*365, min_age=90, require_address=True, 
 
                 # these parameters have defaults that were established by testing
-                tract_years_scale = True, # whether or not to normalize each year of tract data
+                spacetime_years_scale = True, # whether or not to normalize each year of tract data
                 join_year = True, # use only data up to test year (vs all data available)
                 training='minmax',
                 community_area = False, # don't include community area binaries
@@ -383,14 +383,15 @@ class LeadData(ModelData):
         left = df[['address_id', 'census_tract_id', 'join_year']].drop_duplicates()
         spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
         spacetime = spacetime.merge(spacetime_address, how='left', left_on=['address_id', 'join_year'], right_index=True, copy=False)
+
+        spacetime.set_index(['address_id', 'join_year'], inplace=True)
+        spacetime.drop(['census_tract_id'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
         
-        print spacetime
+        if spacetime_years_scale:
+            spacetime = spacetime.groupby(level='join_year').apply(lambda x: pd.DataFrame(preprocessing.scale(x), index=x.index, columns=x.columns))
 
-        if tract_years_scale:
-            spacetime = spacetime.groupby(level='year').apply(lambda x: pd.DataFrame(preprocessing.scale(x), index=x.index, columns=x.columns))
-
-        df = df.merge(spacetime, on=['address_id', 'join_year'], how='left', copy=False )
+        df = df.merge(spacetime, left_on=['address_id', 'join_year'], right_index=True, how='left', copy=False )
 
         # additional features
         if not address_history:
@@ -493,8 +494,11 @@ def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left',
     join_table = left_index.join(right_index, lsuffix=lsuffix, rsuffix=rsuffix)
     join_table = join_table[condition(join_table)]
     
-    lindex = left.index.name if left.index.name is not None else 'index'+lsuffix
-    rindex = left.index.name if right.index.name is not None else 'index'+rsuffix
+    lindex = left.index.name if left.index.name is not None else 'index'
+    rindex = left.index.name if right.index.name is not None else 'index'
+    if lindex == rindex:
+        lindex = lindex + lsuffix
+        rindex = rindex + rsuffix
     
     df = left.merge(join_table[[lindex, rindex]], left_index=True, right_on=lindex)
     df = df.merge(right, left_on=rindex, right_index=True)
