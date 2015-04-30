@@ -418,7 +418,7 @@ class LeadData(ModelData):
 
         years = pd.DataFrame({'year':years})
         cond = lambda df: ((df['year_left'] <= df['year']))
-        inspections = conditional_join(inspections, years, left_on=['year'], right_on=['year'], condition=cond, rsuffix='')
+        inspections = conditional_join(inspections, years, left_on=['year'], right_on=['year'], condition=cond)
         
         comply_not_null = inspections[inspections.comply_date.notnull()]
         inspections['comply'] = (comply_not_null['comply_date'].apply(lambda d: d.year) < comply_not_null.year)
@@ -467,7 +467,7 @@ class LeadData(ModelData):
         
         return [aggregate(df, TEST_COLUMNS, index=[level, 'year']) for level in levels]
 
-def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix='_right'):
+def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix=''):
     left_index = left[left_on].reset_index()
     left_index.index = np.zeros(len(left_index))
     
