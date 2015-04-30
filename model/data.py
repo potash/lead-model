@@ -415,20 +415,9 @@ class LeadData(ModelData):
             inspections[column] = inspections[column].astype(int)
         
         inspections['y'] = inspections['init_date'].fillna(inspections['comply_date']).apply(lambda d:d.year)
+
         years = pd.DataFrame({'year':years})
-        
-        #inspections_index = inspections[['y']].reset_index()
-        #inspections_index.index = np.zeros(len(inspections_index))
-        
-        #years.index = np.zeros(len(years))
-        
-        #inspections_index = inspections_index.join(years)
-        
         cond = lambda df: ((df['y'] <= df['year']))
-        
-        #inspections2 = inspections.merge(inspections_index[cond(inspections_index)], left_index=True, right_on='index')
-        #inspections2.set_index([range(len(inspections2))], inplace=True)
-        
         inspections2 = conditional_join(inspections, years, left_on=['y'], right_on=['year'], condition=cond)
         
         comply_not_null = inspections2[inspections2.comply_date.notnull()]
@@ -486,6 +475,7 @@ def conditional_join(left, right, left_on, right_on, condition, lsuffix='left', 
     df = left.merge(join_table[[lindex, rindex]], left_index=True, right_on=lindex)
     df = df.merge(right, left_on=rindex, right_index=True)
     df.drop(labels=[lindex, rindex], axis=1, inplace=True)
+    df.reset_index(drop=True, inplace=True)
     
     return df
 
