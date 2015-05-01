@@ -373,7 +373,7 @@ class LeadData(ModelData):
 
         if building_year_decade:
             df['address_building_year_decade'] = (df['address_building_year'] // 10)
-            CATEGORY_CLASSES['address_building_year_decade'] =  df['address_building_year_decade'].unique()
+            CATEGORY_CLASSES['address_building_year_decade'] =  df['address_building_year_decade'].dropna().unique()
 
 
         df.set_index('test_id', inplace=True)
