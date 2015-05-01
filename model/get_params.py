@@ -12,10 +12,10 @@ def dict_product(d):
     a = [dict(zip(keys, v)) for v in itertools.product(*values)]
     return a
 
-datadir = sys.argv[2]
-outputdir = sys.argv[3]
+datadir = sys.argv[1]
+outputdir = sys.argv[2]
 
-with open(sys.argv[1]) as f:
+with open(sys.argv[3]) as f:
     param_dicts = yaml.load(f)
 
 data = param_dicts['data']
