@@ -7,8 +7,10 @@ if [ -n "$3" ]; then
     cp $3 $2/params.yaml 
 fi
 
+# print number of models to run
 ./n_models.py $2/params.yaml
 
-rm -r $2/*/
+# delete old model runs
+rm -r $2/*/ 2> /dev/null
 
 ./get_params.py $1 $2 $2/params.yaml | parallel --delay 5 --joblog $2/log ./run_model.py

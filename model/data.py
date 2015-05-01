@@ -241,8 +241,8 @@ class LeadData(ModelData):
 
                 # these parameters have defaults that were established by testing
                 spacetime_years_scale = True, # whether or not to normalize each year of tract data
-                join_year = True, # use only data up to test year (vs all data available)
-                training='minmax',
+                training='minmax', # minmax, preminmax or all
+                testing='all', # all, never_tested
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=1,
@@ -290,8 +290,11 @@ class LeadData(ModelData):
         elif training != 'all':
             raise ValueError("Invalid training option: " + str(training))
         
-        test = (df.test_date >= today) & (df.kid_date_of_birth < today) & \
-            ((df.test_minmax))# | (df.test_maxmax & df.test_bll <= 5))
+        test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
+        if testing == 'all':
+            test = test & ((df.test_minmax & df.test_bll > 5) | (df.test_maxmax & df.test_bll <= 5))
+        else:
+            print 'Warning: testing option \'{}\' not supported'.format(testing)
 
         train_or_test = train | test
         train = train.loc[train_or_test]
@@ -313,7 +316,7 @@ class LeadData(ModelData):
             df[c + '_days_to_test'] = pd.to_timedelta((pseudo_test_date - df[c + '_date']), 'D').astype(int)
             df.drop(c + '_date', axis=1, inplace=True)
         
-        df['join_year'] = df.year.apply(lambda y: min(y-1, year-1)) if join_year else year-1
+        df['join_year'] = df.year.apply(lambda y: min(y-1, year-1)) 
         
         if test_date_season:
             df['test_date_month'] = df['test_date'].apply(lambda d: d.month).where(df['test_date'] < today)
@@ -428,6 +431,7 @@ class LeadData(ModelData):
         TEST_COLUMNS = {
             'count': {'numerator': 1},
             'tested': {'numerator': 1, 'func': np.max},
+            'poisoned': {'numerator': lambda t: (t.test_bll > 5).astype(int), 'func':np.max},
             'kid_count': {'numerator': 'test_minmax'},
             'ebll_test_count': {'numerator': ebll_test_count},
             'ebll_test_ratio': {'numerator': ebll_test_count, 'denominator': 1},
@@ -554,7 +558,6 @@ def get_collinear(df, tol=.1, verbose=False):
     if verbose:
         for i in range(len(diag)):
             if np.abs(diag[i]) < tol:
-                pass
                 print r[:,i] # TODO print equation with column names!
     return [df.columns[i] for i in range(len(diag)) if np.abs(diag[i]) < tol]
 
