@@ -174,8 +174,7 @@ class LeadData(ModelData):
     # TODO: organize and explain these
     EXCLUDE = {'kid_id', 'kid_first_name', 'kid_last_name', 'test_id', 'test_type', 
                'test_kid_age_days', 'test_date', 'test_minmax', 'test_maxmax', 'test_min', 'address_id', 'census_tract_id',
-               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method',
-               'test_number', 'minmax_test_number', 'test_bll',
+               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method', 'minmax_test_number', 'test_bll', 'test_number'
     }
     
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
@@ -278,7 +277,7 @@ class LeadData(ModelData):
         if date_to > self.date_to:
             warnings.warn('today + max_days is outside of datasource')
         
-        date_mask = (df.test_date >= date_from) & (df.test_date < date_to)
+        date_mask = (df.test_date >= date_from)# & (df.test_date < date_to)
         df = df[date_mask]
 
         # cross validation
@@ -290,9 +289,13 @@ class LeadData(ModelData):
         elif training != 'all':
             raise ValueError("Invalid training option: " + str(training))
         
-        test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
         if testing == 'all':
-            test = test & ((df.test_minmax & df.test_bll > 5) | (df.test_maxmax & df.test_bll <= 5))
+           test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
+           df2 = df[test & ((df.test_bll > 5) == (df.minmax_bll > 5))]
+           testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
+           test = pd.Series(df.index.isin(testix), index=df.index)
+           test = test & ( ( (df.test_bll > 5) & df.test_minmax) | (df.test_bll <= 5))
+
         else:
             print 'Warning: testing option \'{}\' not supported'.format(testing)
 
