@@ -14,7 +14,7 @@ CATEGORY_CLASSES = {
     'address_building_condition': ['SOUND', 'NEEDS MINOR REPAIR',
         'NEEDS MAJOR REPAIR', 'UNINHABITABLE'],
     'kid_sex' : ['M', 'F'],
-    'test_type': ['V', 'C'],
+    'sample_type' : ['V', 'C'],
     'surname_ethnicity': ['black', 'white', 'api', 'aian', 'p2race'],
     'kid_ethnicity': ['black', 'white', 'hispanic', 'asian'],
     'tract_ethnicity': ['asian', 'black', 'white', 'latino'],
@@ -174,7 +174,7 @@ class LeadData(ModelData):
     # TODO: organize and explain these
     EXCLUDE = {'kid_id', 'kid_first_name', 'kid_last_name', 'test_id', 'test_type', 
                'test_kid_age_days', 'test_date', 'test_minmax', 'test_maxmax', 'test_min', 'address_id', 'census_tract_id',
-               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method', 'minmax_test_number', 'test_bll', 'test_number'
+               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method', 'minmax_test_number', 'test_bll', 'test_number', 'min_sample_date'
     }
     
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
@@ -290,14 +290,16 @@ class LeadData(ModelData):
             raise ValueError("Invalid training option: " + str(training))
         
         if testing == 'all':
-           test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
-           df2 = df[test & ((df.test_bll > 5) == (df.minmax_bll > 5))]
-           testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
-           test = pd.Series(df.index.isin(testix), index=df.index)
-           test = test & ( ( (df.test_bll > 5) & df.test_minmax) | (df.test_bll <= 5))
-
+            test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
+        elif testing == 'untested':
+            test = (df.test_date >= today) & (df.kid_date_of_birth < today) & (df.min_sample_date >= today)
         else:
             print 'Warning: testing option \'{}\' not supported'.format(testing)
+
+        df2 = df[test & ((df.test_bll > 5) == (df.minmax_bll > 5))]
+        testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
+        test = pd.Series(df.index.isin(testix), index=df.index)
+        test = test & ( ( (df.test_bll > 5) & df.test_minmax) | (df.test_bll <= 5))
 
         train_or_test = train | test
         train = train.loc[train_or_test]
@@ -310,6 +312,8 @@ class LeadData(ModelData):
         past_test = df.test_date < today
         future_test_date = (df.kid_date_of_birth + mean_age).apply(lambda d: max(d, today))
         pseudo_test_date = df.test_date.where(past_test, future_test_date)
+
+        df['sample_type'] = df['sample_type'].where(past_test)
         
         df['kid_date_of_birth_month'] = df['kid_date_of_birth'].apply(lambda d: d.month)
         df['kid_birth_date'] = df['kid_date_of_birth']
@@ -322,7 +326,7 @@ class LeadData(ModelData):
         df['join_year'] = df.year.apply(lambda y: min(y-1, year-1)) 
         
         if test_date_season:
-            df['test_date_month'] = df['test_date'].apply(lambda d: d.month).where(df['test_date'] < today)
+            df['test_date_month'] = df['test_date'].apply(lambda d: d.month).where(past_test)
             CATEGORY_CLASSES['test_date_month'] = range(1,13)
 
         # spatial 
