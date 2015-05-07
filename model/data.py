@@ -240,7 +240,7 @@ class LeadData(ModelData):
 
                 # these parameters have defaults that were established by testing
                 spacetime_years_scale = True, # whether or not to normalize each year of tract data
-                training='minmax', # minmax, preminmax or all
+                training='all', # minmax, preminmax or all
                 testing='all', # all, never_tested
                 community_area = False, # don't include community area binaries
                 exclude={}, 
