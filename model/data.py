@@ -203,7 +203,7 @@ class LeadData(ModelData):
     def read_sql(self):
         engine = util.create_engine()
         
-        self.kids = pd.read_sql('select * from output.kids where '
+        self.tests = pd.read_sql('select * from output.tests where '
                         'test_date between \'{date_from}\' and \'{date_to}\' '
                         .format(date_from=self.date_from, date_to=self.date_to), engine, index_col='test_id')
         
@@ -211,22 +211,22 @@ class LeadData(ModelData):
             self.tables[table] = pd.read_sql('select * from output.' + table, engine)
             
     def write(self):
-        self.kids.to_pickle(self.directory + '/kids.pkl')
+        self.tests.to_pickle(self.directory + '/tests.pkl')
         
         for table in self.tables:
             self.tables[table].to_pickle(self.directory + "/" + table + '.pkl')
         
     def read_pkl(self):
-        self.kids = pd.read_pickle(self.directory + "/kids.pkl")
+        self.tests = pd.read_pickle(self.directory + "/tests.pkl")
         
         for table in self.tables:
             self.tables[table] = pd.read_pickle(self.directory + "/" + table + '.pkl')
     
     def read_csv(self):
-        self.kids = pd.read_csv(self.directory + "/kids.csv", index_col='test_id')
+        self.tests = pd.read_csv(self.directory + "/tests.csv", index_col='test_id')
         
         for c in self.KIDS_DATE_COLUMNS:
-            self.kids[c] = self.kids[c].apply(lambda x: 
+            self.tests[c] = self.tests[c].apply(lambda x: 
                     x if pd.isnull(x) else datetime.datetime.strptime(x, '%Y-%m-%d').date())
         
         for table in self.tables:
@@ -253,8 +253,8 @@ class LeadData(ModelData):
                 exclude_addresses=[203008]): # exclude Aunt Martha's health center
 
         exclude = self.EXCLUDE.union(exclude)
-        age_mask = (self.kids.test_kid_age_days >=  min_age) & (self.kids.test_kid_age_days <= max_age)
-        df = self.kids[age_mask]
+        age_mask = (self.tests.test_kid_age_days >=  min_age) & (self.tests.test_kid_age_days <= max_age)
+        df = self.tests[age_mask]
         if ward_id is not None:
             df = df[df.ward_id==ward_id]
             
@@ -446,7 +446,7 @@ class LeadData(ModelData):
             'ebll_kid_count': {'numerator': ebll_kid_count},
             'ebll_kid_ratio': {'numerator': ebll_kid_count, 'denominator': 'test_minmax'}
         }
-        if df is None: df = self.kids
+        if df is None: df = self.tests
         
         if period != 1:
             df = join_years(df, years, period)
