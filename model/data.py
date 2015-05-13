@@ -181,7 +181,7 @@ class LeadData(ModelData):
                     'address_inspection_init_date', 'address_inspection_comply_date']
     
     def __init__(self, source, date_from, date_to, directory=None, 
-                 tables=['inspections', 'tracts', 'wards', 'addresses']):
+                 tables=['inspections', 'tracts', 'wards', 'addresses', 'acs']):
         self.source = source
         self.directory = directory
         
@@ -361,6 +361,18 @@ class LeadData(ModelData):
         spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
         spacetime = spacetime.merge(spacetime_address, how='left', left_on=['address_id', 'join_year'], right_index=True, copy=False)
 
+        
+        # acs data
+        left = df[['census_tract_id', 'join_year']].drop_duplicates()
+        acs = self.tables['acs'].set_index(['census_tract_id', 'year'])
+        prefix_columns(acs, 'acs_5yr_')
+        acs = left.merge(acs, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
+        acs_filled = acs.groupby('census_tract_id').transform(lambda d: d.sort('join_year').fillna(method='backfill'))
+        # left join and groupby preserved the left index but groupby dropped the tract
+        # so put the tract back
+        acs_filled['census_tract_id'] = acs['census_tract_id']
+
+        spacetime = spacetime.merge(acs_filled, on=['census_tract_id', 'join_year'], how='left', copy=False)
         spacetime.set_index(['address_id', 'join_year'], inplace=True)
         spacetime.drop(['census_tract_id'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
