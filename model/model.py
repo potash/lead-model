@@ -80,4 +80,4 @@ class LogisticRegression(object):
         self.result = self.model.fit()
     
     def predict_proba(self, X):
-        return self.res.predict(X)
+        return self.result.predict(X)
