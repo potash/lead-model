@@ -20,8 +20,8 @@ def dict_to_df(d):
             df[k] = [d[k]]
     return df
 
-def read_model(dirname):
-    estimator = (joblib.load(os.path.join(dirname, 'estimator.pkl')))
+def read_model(dirname, estimator=True):
+    estimator = (joblib.load(os.path.join(dirname, 'estimator.pkl'))) if estimator else None
     y = (pd.read_csv(os.path.join(dirname, 'y.csv'), index_col=0))
     params = yaml.load(open(os.path.join(dirname, 'params.yaml')))
     columns = pd.read_csv(os.path.join(dirname, 'columns.csv')).columns
@@ -35,8 +35,8 @@ def read_model(dirname):
 
     return df
 
-def read_models(dirname):
-    df = pd.concat((read_model(subdir) for subdir in get_subdirs(dirname)), ignore_index=True)
+def read_models(dirname, estimator=True):
+    df = pd.concat((read_model(subdir, estimator) for subdir in get_subdirs(dirname)), ignore_index=True)
     calculate_metrics(df)
 
     return df

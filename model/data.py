@@ -180,13 +180,10 @@ class LeadData(ModelData):
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
                     'address_inspection_init_date', 'address_inspection_comply_date']
     
-    def __init__(self, source, date_from, date_to, directory=None, 
+    def __init__(self, source, directory=None, 
                  tables=['inspections', 'tracts', 'wards', 'addresses', 'acs']):
         self.source = source
         self.directory = directory
-        
-        self.date_from = date_from
-        self.date_to = date_to
         
         self.tables = {t:None for t in tables}
     
@@ -203,9 +200,7 @@ class LeadData(ModelData):
     def read_sql(self):
         engine = util.create_engine()
         
-        self.tests = pd.read_sql('select * from output.tests where '
-                        'test_date between \'{date_from}\' and \'{date_to}\' '
-                        .format(date_from=self.date_from, date_to=self.date_to), engine, index_col='test_id')
+        self.tests = pd.read_sql('select * from output.tests', engine, index_col='test_id')
         
         for table in self.tables:
             self.tables[table] = pd.read_sql('select * from output.' + table, engine)
@@ -240,6 +235,7 @@ class LeadData(ModelData):
 
                 # these parameters have defaults that were established by testing
                 spacetime_years_scale = True, # whether or not to normalize each year of tract data
+                aggregation_years = None,
                 training='all', # minmax, preminmax or all
                 testing='all', # all, never_tested
                 community_area = False, # don't include community area binaries
@@ -250,7 +246,9 @@ class LeadData(ModelData):
                 ward_id = None,
                 building_year_decade=True,
                 test_date_season=True,
-                exclude_addresses=[203008]): # exclude Aunt Martha's health center
+                exclude_addresses=[296888, # Aunt Martha's Health Center
+                                   70798,  # Union Health Service Inc. 
+                                   447803]): # Former Maryville Hospital
 
         exclude = self.EXCLUDE.union(exclude)
         age_mask = (self.tests.test_kid_age_days >=  min_age) & (self.tests.test_kid_age_days <= max_age)
@@ -270,12 +268,6 @@ class LeadData(ModelData):
         today = datetime.date(year, 1, 1)
         date_from = datetime.date(year - train_years, 1, 1)
         date_to = datetime.date(year, 1, 1) + datetime.timedelta(max_age)
-        
-        if date_from < self.date_from:
-            raise ValueError('transform dates out of range')
-        
-        if date_to > self.date_to:
-            warnings.warn('today + max_days is outside of datasource')
         
         date_mask = (df.test_date >= date_from)# & (df.test_date < date_to)
         df = df[date_mask]
@@ -344,7 +336,8 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
-        
+        if aggregation_years is not None:
+            tests_subset = tests_subset[tests_subset.year >= year - aggregation_years]
         inspections_tract,inspections_address = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
         tests_tract = self.aggregate_tests(levels=['census_tract_id'], df=tests_subset)[0]
         tests_address = self.aggregate_tests(levels=['address_id'], years=years, period=None, df=tests_subset)[0]
@@ -454,7 +447,11 @@ class LeadData(ModelData):
             'kid_count': {'numerator': 'test_minmax'},
             'ebll_test_count': {'numerator': ebll_test_count},
             'ebll_test_ratio': {'numerator': ebll_test_count, 'denominator': 1},
-            'avg_ebll': {'numerator': lambda t: t.test_bll.where(t.test_bll > 5, np.nan), 'denominator': ebll_test_count}, # use np.nan because 0/0 is infinity but nan/0 is nan...
+            'avg_bll': {'numerator': 'test_bll', 'func':np.mean}, 
+            'median_bll': {'numerator': 'test_bll', 'func':np.median}, 
+            'max_bll': {'numerator': 'test_bll', 'func':np.max}, 
+            'min_bll': {'numerator': 'test_bll', 'func':np.min}, 
+            'std_bll': {'numerator': 'test_bll', 'func':np.std}, 
             'ebll_kid_count': {'numerator': ebll_kid_count},
             'ebll_kid_ratio': {'numerator': ebll_kid_count, 'denominator': 'test_minmax'}
         }
