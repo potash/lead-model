@@ -1,5 +1,7 @@
 import pandas as pd
 from sklearn import preprocessing
+from functools import partial
+from scipy import stats
 import re
 import numpy as np
 import collections
@@ -234,14 +236,14 @@ class LeadData(ModelData):
                 bll_threshold=5, max_age=3*365, min_age=90, require_address=True, 
 
                 # these parameters have defaults that were established by testing
-                spacetime_years_scale = True, # whether or not to normalize each year of tract data
+                spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 aggregation_years = None,
                 training='all', # minmax, preminmax or all
                 testing='all', # all, never_tested
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=1,
-                impute=True, normalize=True,
+                impute=True, normalize=True, drop_collinear=False,
                 census_tract_binarize=False,
                 ward_id = None,
                 building_year_decade=True,
@@ -354,12 +356,12 @@ class LeadData(ModelData):
         spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
         spacetime = spacetime.merge(spacetime_address, how='left', left_on=['address_id', 'join_year'], right_index=True, copy=False)
 
-        
         # acs data
         left = df[['census_tract_id', 'join_year']].drop_duplicates()
         acs = self.tables['acs'].set_index(['census_tract_id', 'year'])
         prefix_columns(acs, 'acs_5yr_')
-        acs = left.merge(acs, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
+        # use outer join for backfilling
+        acs = left.merge(acs, how='outer', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
         acs_filled = acs.groupby('census_tract_id').transform(lambda d: d.sort('join_year').fillna(method='backfill'))
         # left join and groupby preserved the left index but groupby dropped the tract
         # so put the tract back
@@ -370,8 +372,8 @@ class LeadData(ModelData):
         spacetime.drop(['census_tract_id'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
         
-        if spacetime_years_scale:
-            spacetime = spacetime.groupby(level='join_year').apply(lambda x: pd.DataFrame(preprocessing.scale(x), index=x.index, columns=x.columns))
+        if spacetime_normalize_method is not None:
+            spacetime = spacetime.groupby(level='join_year').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
         df = df.merge(spacetime, left_on=['address_id', 'join_year'], right_index=True, how='left', copy=False )
 
@@ -393,6 +395,9 @@ class LeadData(ModelData):
  
         self.X = X
         self.y = y >  bll_threshold
+
+        if drop_collinear:
+            util.drop_collinear(X)
         
         if undersample > 1:
             self.cv = (undersample_cv(df, self.cv[0], 1.0/undersample), self.cv[1])
@@ -568,15 +573,6 @@ def select_features(df, include=None, exclude=None, regex=True):
 def prefix_columns(df, prefix, ignore=[]):
     df.columns =  [prefix + c if c not in ignore else c for c in df.columns]
 
-def get_collinear(df, tol=.1, verbose=False):
-    q, r = np.linalg.qr(df)
-    diag = r.diagonal()
-    if verbose:
-        for i in range(len(diag)):
-            if np.abs(diag[i]) < tol:
-                print r[:,i] # TODO print equation with column names!
-    return [df.columns[i] for i in range(len(diag)) if np.abs(diag[i]) < tol]
-
 def null_columns(df):
     nulcols = df.isnull().sum() == len(df)
     return nulcols[nulcols==True].index
@@ -601,3 +597,4 @@ def get_correlates(df, c=.99):
 def undersample_cv(d, train, p):
     a = pd.Series([random.random() < p for i in range(len(d))], index=d.index)
     return train & ((d.test_bll > 5).values | a) 
+

@@ -2,6 +2,9 @@ import sqlalchemy
 import os
 import numpy as np
 import datetime
+import pandas as pd
+from sklearn import preprocessing
+from scipy import stats
 
 def create_engine():
     return sqlalchemy.create_engine('postgresql://{user}:{pwd}@{host}:5432/{db}'.format(
@@ -31,3 +34,28 @@ def randdates(start,end, size):
     for i in range(size):
         d[i] = start + r[i]
     return d
+
+# normalize a dataframes columns
+# method = 'normalize': use standard score i.e. (X - \mu) / \sigma
+# method = 'percentile': replace with percentile. SLOW
+def normalize(df, method):
+    if method == 'standard':
+        return pd.DataFrame(preprocessing.scale(df), index=df.index, columns=df.columns)
+    elif method == 'percentile':
+        return df.rank(pct=True)
+
+def get_collinear(df, tol=.1, verbose=False):
+    q, r = np.linalg.qr(df)
+    diag = r.diagonal()
+    if verbose:
+        for i in range(len(diag)):
+            if np.abs(diag[i]) < tol:
+                print r[:,i] # TODO print equation with column names!
+    return [df.columns[i] for i in range(len(diag)) if np.abs(diag[i]) < tol]
+
+def drop_collinear(df, tol=.1, verbose=True):
+    columns = get_collinear(df, tol=tol)
+    if (len(columns) > 0) and verbose:
+        print 'Dropping collinear columns: ' + str(columns)
+    df.drop(columns, axis=1, inplace=True)
+    return df

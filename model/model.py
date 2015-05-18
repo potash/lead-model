@@ -2,41 +2,12 @@ import datetime
 from sklearn import metrics
 import pandas as pd
 import math
+from statsmodels.discrete.discrete_model import Logit
 
 from sklearn import tree
 import wand.image
 from sklearn.externals.six import StringIO  
 import pydot
-
-def cross_validate_today(df, today, train_kid_age_max=None, test_sample_period=None):
-    train_min_date_of_birth = (today-datetime.timedelta(train_kid_age_max) if train_kid_age_max != None else None)
-    test_max_sample_date = (today+datetime.timedelta(test_sample_period) if test_sample_period != None else None)
-    
-    train = get_examples(df, max_sample_date=today, min_date_of_birth=train_min_date_of_birth) & ~df.minmax
-    
-    test = get_examples(df, min_sample_date=today, max_date_of_birth=today, max_sample_date=test_max_sample_date)
-    
-    return (train,test)
-
-def cross_validate_mothers(df, date, train_kid_age_max=None, min_pregnant=0, max_pregnant=9*30):
-    train_min_date_of_birth = (date-datetime.timedelta(train_kid_age_max) if train_kid_age_max != None else None)
-    train = get_examples(df, max_sample_date=date, min_date_of_birth=train_min_date_of_birth)
-    
-    test = get_examples(df, min_date_of_birth=date + datetime.timedelta(9*30-min_pregnant), max_date_of_birth=date + datetime.timedelta(9*30-min_pregnant))
-    
-    return train,test
-
-def get_examples(df, min_sample_date=None, max_sample_date=None, min_date_of_birth=None, max_date_of_birth=None):
-    b = ~df['test_date'].isnull()
-    if min_sample_date != None:
-        b &= df['test_date'] >= min_sample_date
-    if max_sample_date != None:
-        b &= df['test_date'] < max_sample_date
-    if min_date_of_birth != None:
-        b &= df['kid_date_of_birth'] >= min_date_of_birth
-    if max_date_of_birth != None:
-        b &= df['kid_date_of_birth'] < max_date_of_birth
-    return b
 
 def y_score(estimator, X):
     if hasattr(estimator, 'decision_function'):
@@ -99,3 +70,14 @@ def export_tree(clf, filename, feature_names=None):
     tree.export_graphviz(clf, out_file=dot_data, feature_names=feature_names) 
     graph = pydot.graph_from_dot_data(dot_data.getvalue()) 
     graph.write_pdf(filename)
+
+class LogisticRegression(object):
+    def __init__(self):
+        pass
+
+    def fit(self, X, y, **kwargs):
+        self.model = Logit(y, X)
+        self.result = self.model.fit()
+    
+    def predict_proba(self, X):
+        return self.res.predict(X)
