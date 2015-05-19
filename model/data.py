@@ -202,7 +202,7 @@ class LeadData(ModelData):
     def read_sql(self):
         engine = util.create_engine()
         
-        self.tests = pd.read_sql('select * from output.tests', engine, index_col='test_id')
+        self.tests = pd.read_sql('select * from output.tests', engine)
         
         for table in self.tables:
             self.tables[table] = pd.read_sql('select * from output.' + table, engine)
@@ -253,7 +253,8 @@ class LeadData(ModelData):
 
         exclude = self.EXCLUDE.union(exclude)
         age_mask = (self.tests.test_kid_age_days >=  min_age) & (self.tests.test_kid_age_days <= max_age)
-        df = self.tests[age_mask].join(self.tables['addresses'], on='address_id')
+        df = self.tests[age_mask].merge(self.tables['addresses'], on='address_id', how='left', copy=False)
+        df.set_index('test_id', inplace=True)
         if ward_id is not None:
             df = df[df.ward_id==ward_id]
             
@@ -407,12 +408,12 @@ class LeadData(ModelData):
             self.cv = (undersample_cv(df, self.cv[0], 1.0/undersample), self.cv[1])
 
     def aggregate_inspections(self, years, levels):
-        res_columns = {'res_count': {'numerator': 'residential'}}
         inspections = self.tables['inspections']
-        for index in levels:
-            count = aggregate(self.tables['addresses'], res_columns, index=index)
-            count.columns = [index + '_res_count']
-            inspections = inspections.merge(count.reset_index(), how='left', on=index)
+        #res_columns = {'res_count': {'numerator': 'residential'}}
+        #for index in levels:
+        #    count = aggregate(self.tables['addresses'], res_columns, index=index)
+        #    count.columns = [index + '_res_count']
+        #    inspections = inspections.merge(count.reset_index(), how='left', on=index)
         
         for column in ['hazard_int','hazard_ext']:
             inspections[column].fillna(True, inplace=True)
@@ -441,7 +442,7 @@ class LeadData(ModelData):
         
         r = []
         for level in levels:
-            INSPECTION_COLUMNS['pct_inspected'] = {'numerator': 1, 'denominator': level + '_res_count', 'denominator_func': np.max}
+            #INSPECTION_COLUMNS['pct_inspected'] = {'numerator': 1, 'denominator': level + '_res_count', 'denominator_func': np.max}
             r.append(aggregate(inspections, INSPECTION_COLUMNS, index=[level,'year']))
             
         return r
