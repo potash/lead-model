@@ -59,3 +59,28 @@ def drop_collinear(df, tol=.1, verbose=True):
         print 'Dropping collinear columns: ' + str(columns)
     df.drop(columns, axis=1, inplace=True)
     return df
+
+def cross_join(left, right, lsuffix='_left', rsuffix='_right'):
+    left.index = np.zeros(len(left))
+    right.index = np.zeros(len(right))
+    return left.join(right, lsuffix=lsuffix, rsuffix=rsuffix)
+    
+def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix='_right'):
+    left_index = left[left_on].reset_index()
+    right_index = right[right_on].reset_index()
+    
+    join_table = cross_join(left_index, right_index, lsuffix=lsuffix, rsuffix=rsuffix)
+    join_table = join_table[condition(join_table)]
+    
+    lindex = left.index.name if left.index.name is not None else 'index'
+    rindex = left.index.name if right.index.name is not None else 'index'
+    if lindex == rindex:
+        lindex = lindex + lsuffix
+        rindex = rindex + rsuffix
+    
+    df = left.merge(join_table[[lindex, rindex]], left_index=True, right_on=lindex)
+    df = df.merge(right, left_on=rindex, right_index=True)
+    df.drop(labels=[lindex, rindex], axis=1, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    
+    return df

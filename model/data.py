@@ -238,7 +238,7 @@ class LeadData(ModelData):
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 address_test_periods = [None],
                 training='all', # minmax, preminmax or all
-                testing='all', # all, never_tested
+                testing='all',  # all, never_tested
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=1,
@@ -268,9 +268,7 @@ class LeadData(ModelData):
         # get tests relevant to date
         today = datetime.date(year, 1, 1)
         date_from = datetime.date(year - train_years, 1, 1)
-        date_to = datetime.date(year, 1, 1) + datetime.timedelta(max_age)
-        
-        date_mask = (df.test_date >= date_from)# & (df.test_date < date_to)
+        date_mask = (df.test_date >= date_from)
         df = df[date_mask]
 
         # cross validation
@@ -289,6 +287,9 @@ class LeadData(ModelData):
         else:
             print 'Warning: testing option \'{}\' not supported'.format(testing)
 
+        # want to get a single test for each future kid
+        # if they get poisoned, take their first poisoned test
+        # if they don't, take their first test
         df2 = df[test & ((df.test_bll > 5) == (df.minmax_bll > 5))]
         testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
         test = pd.Series(df.index.isin(testix), index=df.index)
@@ -477,31 +478,8 @@ def join_years(left, years, period=None):
     else:
         cond = lambda df: (df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period)
         
-    df = conditional_join(left, years, left_on=['year'], right_on=['year'], condition=cond)
+    df = util.conditional_join(left, years, left_on=['year'], right_on=['year'], condition=cond)
     df.rename(columns={'year_y': 'year'}, inplace=True)
-    return df
-
-def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix='_right'):
-    left_index = left[left_on].reset_index()
-    left_index.index = np.zeros(len(left_index))
-    
-    right_index = right[right_on].reset_index()
-    right_index.index = np.zeros(len(right_index))
-    
-    join_table = left_index.join(right_index, lsuffix=lsuffix, rsuffix=rsuffix)
-    join_table = join_table[condition(join_table)]
-    
-    lindex = left.index.name if left.index.name is not None else 'index'
-    rindex = left.index.name if right.index.name is not None else 'index'
-    if lindex == rindex:
-        lindex = lindex + lsuffix
-        rindex = rindex + rsuffix
-    
-    df = left.merge(join_table[[lindex, rindex]], left_index=True, right_on=lindex)
-    df = df.merge(right, left_on=rindex, right_index=True)
-    df.drop(labels=[lindex, rindex], axis=1, inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    
     return df
 
 # generate year, month, day features from specified date features
