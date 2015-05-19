@@ -253,7 +253,7 @@ class LeadData(ModelData):
 
         exclude = self.EXCLUDE.union(exclude)
         age_mask = (self.tests.test_kid_age_days >=  min_age) & (self.tests.test_kid_age_days <= max_age)
-        df = self.tests[age_mask]
+        df = self.tests[age_mask].join(self.tables['addresses'], on='address_id')
         if ward_id is not None:
             df = df[df.ward_id==ward_id]
             
