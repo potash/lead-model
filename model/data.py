@@ -274,12 +274,6 @@ class LeadData(ModelData):
 
         # cross validation
         train = (df.test_date < today) 
-        if training == 'minmax':
-            train = train & (df.test_minmax)
-        elif training == 'pre_minmax':
-            train = train & (df.test_number <= df.minmax_test_number)
-        elif training != 'all':
-            raise ValueError("Invalid training option: " + str(training))
         
         if testing == 'all':
             test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
