@@ -231,13 +231,12 @@ class LeadData(ModelData):
             
     def transform(self, year, train_years,
                 kid, tract, address, ward,
-                tract_years, # number of years of tract history
                 address_history, # boolean true or falsea
                 bll_threshold=5, max_age=3*365, min_age=90, require_address=True, 
 
                 # these parameters have defaults that were established by testing
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
-                aggregation_years = None,
+                address_test_periods = [None],
                 training='all', # minmax, preminmax or all
                 testing='all', # all, never_tested
                 community_area = False, # don't include community area binaries
@@ -338,18 +337,22 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
-        if aggregation_years is not None:
-            tests_subset = tests_subset[tests_subset.year >= year - aggregation_years]
         inspections_tract,inspections_address = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
         tests_tract = self.aggregate_tests(levels=['census_tract_id'], df=tests_subset)[0]
-        tests_address = self.aggregate_tests(levels=['address_id'], years=years, period=None, df=tests_subset)[0]
+
+        tas = []
+        for period in address_test_periods:
+            ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=tests_subset)[0]
+            prefix = str(period) if period is not None else 'all'
+            prefix_columns(ta, 'address_tests_' + prefix)
+            tas.append(ta)
+        tests_address = tas.pop().join(tas, how='outer')
         
         prefix_columns(inspections_tract, 'tract_inspections_cumulative_')
         prefix_columns(tests_tract, 'tract_tests_1y_')
         spacetime_tract = inspections_tract.join(tests_tract, how='outer')
         
         prefix_columns(inspections_address, 'address_inspections_cumulative_')
-        prefix_columns(tests_address, 'address_tests_cumulative_')
         spacetime_address = inspections_address.join(tests_address, how='outer')
         
         left = df[['address_id', 'census_tract_id', 'join_year']].drop_duplicates()
