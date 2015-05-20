@@ -16,7 +16,7 @@ CATEGORY_CLASSES = {
     'address_building_condition': ['SOUND', 'NEEDS MINOR REPAIR',
         'NEEDS MAJOR REPAIR', 'UNINHABITABLE'],
     'kid_sex' : ['M', 'F'],
-    'sample_type' : ['V', 'C'],
+    'test_type' : ['V', 'C'],
     'surname_ethnicity': ['black', 'white', 'api', 'aian', 'p2race'],
     'kid_ethnicity': ['black', 'white', 'hispanic', 'asian'],
     'tract_ethnicity': ['asian', 'black', 'white', 'latino'],
@@ -36,147 +36,12 @@ class ModelData(object):
     def transform(self):
         raise NotImplementedError
 
-# train and test years control the date of the blood test 
-class AddressData(ModelData):
-    
-    EXCLUDE = {'source', 'date', 'address', 'address_id', 'census_tract_id'}
-    
-    def __init__(self, source, date, period_days, train_years, test_years, directory=None, max_age=3*365, min_age=90, undersample=1, exclude = {}):
-        self.source = source
-        self.directory = directory
-        
-        self.date = date
-        self.period = [datetime.timedelta(period_days[0]), datetime.timedelta(period_days[1])]
-        
-        self.max_age = max_age
-        self.min_age = min_age
-        self.undersample = undersample
-    
-        self.exclude = self.EXCLUDE.union(exclude)
-    
-        self.date_from = self.date - datetime.timedelta(train_years*365)
-        self.date_to = self.date + datetime.timedelta(test_years*365)
-        
-        print self.date_from
-        print self.date_to
-    
-    # TODO move this to ModelData    
-    def read(self, **args):
-        if self.source == 'csv':
-            self.read_csv()
-        elif self.source == 'sql':
-            self.read_sql()
-        else:
-            raise ValueError('Unexpected data source: ' + str(self.source))
-        
-    def read_sql(self):
-        engine = util.create_engine()
-        print 'reading addresses'
-        self.addresses = pd.read_sql('select * from output.addresses', engine)
-        
-        print 'reading kids'
-        self.kids = pd.read_sql('select * from output.kid_addresses where minmax AND ('
-                        '((date_of_birth between \'{date_from}\' and \'{date_to}\') and ( (min_test_date - date_of_birth) between {min_age} and {max_age})) OR ' 
-                        '((date_of_birth between \'{date_from}\' and \'{date_to}\') and ( (max_test_date - date_of_birth) between {min_age} and {max_age})))'
-                        .format(date_from=self.date_from, date_to=self.date_to,
-                        min_age=self.min_age,max_age=self.max_age), engine)
-        
-    def transform(self):    
-        print 'postitives'
-        # random date for positive training examples
-        train_mask = self.kids.min_test_date < self.date
-        
-        dob_noise = self.kids.date_of_birth.values + util.randtimedelta(self.period[0].days, self.period[1].days, len(self.kids))
-        
-        positive = self.kids.reindex(columns=['address_id'])
-        positive['date'] = pd.Series(dob_noise, index=self.kids.index).where(train_mask, self.date)
-        positive['kid_present'] = True
-        
-        # TODO allow for oversampling positives?
-        
-        print 'negatives'
-        # DOING random addresses and dates for negative training examples
-        # TODO don't use uniform distribution over addresses. weighted by population? etc.
-        # n_samples = train_mask.sum()
-        #ids = [self.addresses.address_id.values[np.random.randint(len(self.addresses))] for i in range(n_samples)]
-        #dates = randdates(self.date_from, self.date, n_samples)
-        #kid_present = np.empty(shape=n_samples, dtype=np.bool)
-        
-        #print(n_samples)
-        
-        address_ids = set(self.addresses.address_id)
-        positive_address_ids = set(self.kids[train_mask].address_id.values)
-        
-        negative_address_ids = list(address_ids.difference(positive_address_ids))
-        dates = util.randdates(self.date_from, self.date, len(negative_address_ids))
-        
-        negative = pd.DataFrame({'address_id':negative_address_ids, 'date':dates})
-        negative['kid_present'] = False
-        
-        train = pd.concat([positive[train_mask],negative], ignore_index=True)
-        
-        # METHOD 1: iterate over postiive examples and flip bits
-        #training = self.kids[train_mask]
-        #ids_series = pd.Series(ids)
-        #for i,row in enumerate(training.values):
-        #    if i%1000==0: print(i)
-        #    neg_idx = ids_series[ids_series.address_id == row[0]]
-        #    for i in neg_idx.index:
-        #        delta = (row[1] - dates[i])
-        #        if (delta < self.period[1]) and (delta > self.period[0]):
-        #            kid_present[i] = True
-        
-        # METHOD 2: iterate over potential negatives and do lookup
-        #for i in range(n_samples):
-        #    if i%1000==0: print(i)
-        #    d = self.kids.date_of_birth[self.kids.address_id == ids[i]]
-        #    delta = (d - dates[i])
-        #    mask = (delta < self.period[1]) & (delta > self.period[0])
-        #    kid_present[i] = mask.sum()
-            
-        #self.negative = pd.DataFrame({'address_id':ids, 'date':dates, 'kid_present':kid_present})
-        
-        positive_address_ids = set(positive[~train_mask].address_id)
-        negative_address_ids = address_ids.difference(positive_address_ids)
-        
-        positive = pd.DataFrame({'address_id':list(positive_address_ids)})
-        positive['kid_present'] = True
-        
-        negative = pd.DataFrame({'address_id':list(negative_address_ids)})
-        negative['kid_present'] = False
-        
-        test = pd.concat([positive, negative], ignore_index=True)
-        test['date'] = self.date
-        
-        train['train'] = True
-        test['train'] = False
-        
-        df = pd.concat([train, test], ignore_index = True)
-        df = df.merge(self.addresses, on='address_id', how='left')
-        
-        train = df['train']
-        df.drop(['train'], axis=1, inplace=True)
-        self.cv = (train, ~train)
-        self.df = df # TODO remove, for debugging purposes!
-        
-        X,y = Xy(df=df, y_column='kid_present', exclude=self.exclude)
-        self.X = X
-        self.y = y
-        
-    def write_csv(self, filename):
-        self.kids.to_csv(filename + '/kids.csv')
-        self.addresses.to_csv(filename + '/addresses.csv')
-        
-    def read_csv(self, filename):
-        self.kids = pd.read_csv(filename + '/kids.csv')
-        self.addresses = pd.read_csv(filename + '/addresses.csv')
-
 class LeadData(ModelData):
     # default exclusions set
     # TODO: organize and explain these
-    EXCLUDE = {'kid_id', 'kid_first_name', 'kid_last_name', 'test_id', 'test_type', 
-               'test_kid_age_days', 'test_date', 'test_minmax', 'test_maxmax', 'test_min', 'address_id', 'census_tract_id',
-               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method', 'minmax_test_number', 'test_bll', 'test_number', 'min_sample_date'
+    EXCLUDE = {'kid_id', 'kid_first_name', 'kid_last_name', 'test_id', 'test_bll',
+               'test_kid_age_days', 'test_date', 'test_minmax', 'address_id', 'census_tract_id',
+               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method', 'minmax_test_number', 'test_number', 'min_sample_date'
     }
     
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
@@ -251,8 +116,11 @@ class LeadData(ModelData):
                                    447803]): # Former Maryville Hospital
 
         exclude = self.EXCLUDE.union(exclude)
-        age_mask = (self.tests.test_kid_age_days >=  min_age) & (self.tests.test_kid_age_days <= max_age)
-        df = self.tests[age_mask].merge(self.tables['addresses'], on='address_id', how='left', copy=False)
+        df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
+        df['test_kid_age_days'] = (df['test_date'] - df['kid_date_of_birth']) / np.timedelta64(1, 'D')
+        df['test_year'] = df['test_date'].apply(lambda d: d.year)
+        age_mask = (df.test_kid_age_days >=  min_age) & (df.test_kid_age_days <= max_age)
+        df = df[age_mask]
         df.set_index('test_id', inplace=True)
         if ward_id is not None:
             df = df[df.ward_id==ward_id]
@@ -260,9 +128,9 @@ class LeadData(ModelData):
         if  require_address:
             df = df[df.address_id.notnull() & df.ward_id.notnull() & df.census_tract_id.notnull() & df.community_area_id.notnull()]
             exclude.update({'address_null', 'ward_null', 'census_tract_null', 'community_area_null'})
-
         if exclude_addresses is not None:
             df = df[~df.address_id.isin(exclude_addresses)]
+
         tests_subset = df # used below for test aggregation
         
         # get tests relevant to date
@@ -284,7 +152,7 @@ class LeadData(ModelData):
         # want to get a single test for each future kid
         # if they get poisoned, take their first poisoned test
         # if they don't, take their first test
-        df2 = df[test & ((df.test_bll > 5) == (df.minmax_bll > 5))]
+        df2 = df[test & ((df.test_bll > 5) == (df.kid_max_bll > 5))]
         testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
         test = pd.Series(df.index.isin(testix), index=df.index)
         test = test & ( ( (df.test_bll > 5) & df.test_minmax) | (df.test_bll <= 5))
@@ -293,25 +161,33 @@ class LeadData(ModelData):
         train = train.loc[train_or_test]
         test = test.loc[train_or_test]
         self.cv = (train,test)
-        df = df[train_or_test].reset_index().copy()
-        
-        epoch = datetime.date.fromtimestamp(0)
-        mean_age = datetime.timedelta(df[df['test_date'] < today]['test_kid_age_days'].mean())
-        past_test = df.test_date < today
-        future_test_date = (df.kid_date_of_birth + mean_age).apply(lambda d: max(d, today))
-        pseudo_test_date = df.test_date.where(past_test, future_test_date)
+        df = df[train_or_test].copy()
 
-        df['sample_type'] = df['sample_type'].where(past_test)
-        
+        # set test details for (future) test set to nan to eliminate leakage!
+        # can't know about max bll for future poisonings
+        kid_in_test = ~df.kid_id.isin(df[test].kid_id)
+        df['kid_max_bll'] = df['kid_max_bll'].where(train & kid_in_test, df.test_bll)
+        test_columns = [c for c in df.columns if c.startswith('test_')]
+        df.loc[ test, test_columns ] = np.nan
+
+        df.reset_index(inplace=True)
+
+        # generate a fake test date for future tests
+        epoch = datetime.date.fromtimestamp(0)
+        past_test = df.test_date < today # aka training
+        mean_age = datetime.timedelta(df['test_kid_age_days'].mean())
+        future_test_date = (df['kid_date_of_birth'] + mean_age).apply(lambda d: max(d, today))
+        df['test_date'] = df['test_date'].where(past_test, future_test_date)
+
         df['kid_date_of_birth_month'] = df['kid_date_of_birth'].apply(lambda d: d.month)
         df['kid_birth_date'] = df['kid_date_of_birth']
     
         for c in ['kid_birth']: #['address_inspection_init', 'address_inspection_comply', 'kid_birth']:
             df[c + '_days'] = df[c + '_date'].apply(lambda d: None if pd.isnull(d) else (d - epoch).days)
-            df[c + '_days_to_test'] = pd.to_timedelta((pseudo_test_date - df[c + '_date']), 'D').astype(int)
+            df[c + '_days_to_test'] = pd.to_timedelta((df['test_date'] - df[c + '_date']), 'D').astype(int)
             df.drop(c + '_date', axis=1, inplace=True)
         
-        df['join_year'] = df.year.apply(lambda y: min(y-1, year-1)) 
+        df['join_year'] = df.test_date.apply(lambda d: min(d.year-1, year-1)) 
         
         if test_date_season:
             df['test_date_month'] = df['test_date'].apply(lambda d: d.month).where(past_test)
@@ -339,11 +215,11 @@ class LeadData(ModelData):
         spacetime_address = inspections_address
         for period in address_test_periods:
             ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=tests_subset)[0]
-            prefix = str(period) if period is not None else 'all'
-            prefix_columns(ta, 'address_tests_' + prefix)
+            prefix = str(period) + 'y' if period is not None else 'all'
+            prefix_columns(ta, 'address_tests_' + prefix + '_')
             spacetime_address = spacetime_address.merge(ta, how='outer', left_index=True, right_index=True, copy=False)
         
-        prefix_columns(inspections_tract, 'tract_inspections_cumulative_')
+        prefix_columns(inspections_tract, 'tract_inspections_all_')
         prefix_columns(tests_tract, 'tract_tests_1y_')
         spacetime_tract = inspections_tract.join(tests_tract, how='outer')
         
@@ -386,10 +262,10 @@ class LeadData(ModelData):
 
 
         df.set_index('test_id', inplace=True)
-        X,y = Xy(df, y_column = 'minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
+        X,y = Xy(df, y_column = 'kid_max_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
  
         self.X = X
-        self.y = y >  bll_threshold
+        self.y = y > bll_threshold
 
         if drop_collinear:
             util.drop_collinear(X)
@@ -458,19 +334,21 @@ class LeadData(ModelData):
         if df is None: df = self.tests
         
         if period != 1:
-            df = join_years(df, years, period)
+            df = join_years(df, years, period, column='test_year')
         
-        return [aggregate(df, TEST_COLUMNS, index=[level, 'year']) for level in levels]
+        ag = [aggregate(df, TEST_COLUMNS, index=[level, 'test_year']) for level in levels]
+        for a in ag: a.index.rename('year', level='test_year', inplace=True)
+        return ag
 
-def join_years(left, years, period=None):
-    years = pd.DataFrame({'year':years})
+def join_years(left, years, period=None, column='year'):
+    years = pd.DataFrame({column:years})
     if period is None:
-        cond = lambda df: (df['year_left'] <= df['year_right'])
+        cond = lambda df: (df[column + '_left'] <= df[column + '_right'])
     else:
-        cond = lambda df: (df['year_left'] <= df['year_right']) & (df['year_left'] > df['year_right'] - period)
+        cond = lambda df: (df[column + '_left'] <= df[column + '_right']) & (df[column +'_left'] > df[column + '_right'] - period)
         
-    df = util.conditional_join(left, years, left_on=['year'], right_on=['year'], condition=cond)
-    df.rename(columns={'year_y': 'year'}, inplace=True)
+    df = util.conditional_join(left, years, left_on=[column], right_on=[column], condition=cond)
+    df.rename(columns={column + '_y': column}, inplace=True)
     return df
 
 # generate year, month, day features from specified date features
@@ -523,7 +401,7 @@ def Xy(df, y_column, include=None, exclude=None, impute=True, normalize=True, tr
             d = preprocessing.StandardScaler().fit_transform(d)
         X = pd.DataFrame(d, index=X.index, columns = X.columns)
 
-    y = (df[y_column]).astype(int)
+    y = df[y_column]
     X.drop(y_column, axis=1, inplace=True)
     
     return (X,y)
