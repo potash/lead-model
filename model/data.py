@@ -130,11 +130,10 @@ class LeadData(ModelData):
             exclude.update({'address_null', 'ward_null', 'census_tract_null', 'community_area_null'})
         if exclude_addresses is not None:
             df = df[~df.address_id.isin(exclude_addresses)]
-
-        tests_subset = df # used below for test aggregation
         
         # get tests relevant to date
         today = datetime.date(year, 1, 1)
+        past_tests = df[df.test_date < today] # for test aggregation
         date_from = datetime.date(year - train_years, 1, 1)
         date_mask = (df.test_date >= date_from)
         df = df[date_mask]
@@ -155,7 +154,11 @@ class LeadData(ModelData):
         df2 = df[test & ((df.test_bll > 5) == (df.kid_max_bll > 5))]
         testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
         test = pd.Series(df.index.isin(testix), index=df.index)
-        test = test & ( ( (df.test_bll > 5) & df.test_minmax) | (df.test_bll <= 5))
+
+        test_tract = past_tests.census_tract_id.isin(df[test].census_tract_id)
+        test_address = past_tests.address_id.isin(df[test].address_id)
+        past_tests_tract = past_tests[test_tract]
+        past_tests_address = past_tests[test_address]
 
         train_or_test = train | test
         train = train.loc[train_or_test]
@@ -208,20 +211,21 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
-        inspections_tract,inspections_address = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
-        tests_tract = self.aggregate_tests(levels=['census_tract_id'], df=tests_subset)[0]
+        inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
+        tests_tract_ag = self.aggregate_tests(levels=['census_tract_id'], df=past_tests_tract)[0]
 
-        prefix_columns(inspections_address, 'address_inspections_cumulative_')
-        spacetime_address = inspections_address
+        prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
+        prefix_columns(tests_tract_ag, 'tract_tests_1y_')
+        spacetime_tract = inspections_tract_ag.join(tests_tract_ag, how='outer')
+
+        prefix_columns(inspections_address_ag, 'address_inspections_cumulative_')
+        spacetime_address = inspections_address_ag
         for period in address_test_periods:
-            ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=tests_subset)[0]
+            ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=past_tests_address)[0]
             prefix = str(period) + 'y' if period is not None else 'all'
             prefix_columns(ta, 'address_tests_' + prefix + '_')
             spacetime_address = spacetime_address.merge(ta, how='outer', left_index=True, right_index=True, copy=False)
         
-        prefix_columns(inspections_tract, 'tract_inspections_all_')
-        prefix_columns(tests_tract, 'tract_tests_1y_')
-        spacetime_tract = inspections_tract.join(tests_tract, how='outer')
         
         left = df[['address_id', 'census_tract_id', 'join_year']].drop_duplicates()
         spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
@@ -315,12 +319,12 @@ class LeadData(ModelData):
     
     def aggregate_tests(self, levels, period=1, years=None, df=None):
         ebll_test_count = lambda t: (t.test_bll > 5).astype(int)
-        ebll_kid_count = lambda t: ((t.test_bll > 5) & t.test_minmax).astype(int)
+        ebll_kid_ids = lambda t: t.kid_id.where(t.test_bll > 5)
         TEST_COLUMNS = {
             'count': {'numerator': 1},
             'tested': {'numerator': 1, 'func': np.max},
             'poisoned': {'numerator': lambda t: (t.test_bll > 5).astype(int), 'func':np.max},
-            'kid_count': {'numerator': 'test_minmax'},
+            
             'ebll_test_count': {'numerator': ebll_test_count},
             'ebll_test_ratio': {'numerator': ebll_test_count, 'denominator': 1},
             'avg_bll': {'numerator': 'test_bll', 'func':np.mean}, 
@@ -328,8 +332,10 @@ class LeadData(ModelData):
             'max_bll': {'numerator': 'test_bll', 'func':np.max}, 
             'min_bll': {'numerator': 'test_bll', 'func':np.min}, 
             'std_bll': {'numerator': 'test_bll', 'func':np.std}, 
-            'ebll_kid_count': {'numerator': ebll_kid_count},
-            'ebll_kid_ratio': {'numerator': ebll_kid_count, 'denominator': 'test_minmax'}
+            
+            'kid_count': {'numerator': 'kid_id', 'func':count_unique},
+            'kid_ebll_count': {'numerator': ebll_kid_ids, 'func':count_unique},
+            'kid_ebll_prop': {'numerator': ebll_kid_ids, 'denominator': 'kid_id', 'func':count_unique},
         }
         if df is None: df = self.tests
         
@@ -447,4 +453,7 @@ def get_correlates(df, c=.99):
 def undersample_cv(d, train, p):
     a = pd.Series([random.random() < p for i in range(len(d))], index=d.index)
     return train & ((d.test_bll > 5).values | a) 
+
+def count_unique(series):
+    return len(series[series.notnull()].unique())
 
