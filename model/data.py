@@ -39,9 +39,13 @@ class ModelData(object):
 class LeadData(ModelData):
     # default exclusions set
     # TODO: organize and explain these
-    EXCLUDE = {'kid_id', 'kid_first_name', 'kid_last_name', 'test_id', 'test_bll',
-               'test_kid_age_days', 'test_date', 'test_minmax', 'address_id', 'census_tract_id',
-               'year', 'join_year', 'kid_birth_days_to_test', 'kid_date_of_birth', 'address_inspection_init_days_to_test', 'address_method', 'minmax_test_number', 'test_number', 'min_sample_date'
+    EXCLUDE = { 
+        'kid_id', 'test_id', 'address_id', 'census_tract_id', # ids
+        'kid_first_name', 'kid_last_name', 'address_method', # strings
+        'test_bll', 'test_minmax', 'kid_minmax_date', # leakage
+        'test_date', 'kid_date_of_birth', #date 
+        'year', 'join_year', # used for join
+        'kid_birth_days_to_test',  'address_inspection_init_days_to_test' # variables that confuse the model?
     }
     
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
@@ -117,7 +121,6 @@ class LeadData(ModelData):
 
         exclude = self.EXCLUDE.union(exclude)
         df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
-        df['test_kid_age_days'] = (df['test_date'] - df['kid_date_of_birth']) / np.timedelta64(1, 'D')
         df['test_year'] = df['test_date'].apply(lambda d: d.year)
         age_mask = (df.test_kid_age_days >=  min_age) & (df.test_kid_age_days <= max_age)
         df = df[age_mask]
@@ -151,12 +154,13 @@ class LeadData(ModelData):
         # want to get a single test for each future kid
         # if they get poisoned, take their first poisoned test
         # if they don't, take their first test
-        df2 = df[test & ((df.test_bll > 5) == (df.kid_max_bll > 5))]
+        df2 = df[test & ((df.test_bll > 5) == (df.kid_minmax_bll > 5))]
         testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
-        test = pd.Series(df.index.isin(testix), index=df.index)
+        first_test = pd.Series(df.index.isin(testix), index=df.index)
+        test = first_test & ((df.test_minmax & (df.test_bll > 5)) | (df.test_bll <= 5))
 
-        test_tract = past_tests.census_tract_id.isin(df[test].census_tract_id)
-        test_address = past_tests.address_id.isin(df[test].address_id)
+        test_tract = past_tests.census_tract_id.isin(df.census_tract_id)
+        test_address = past_tests.address_id.isin(df.address_id)
         past_tests_tract = past_tests[test_tract]
         past_tests_address = past_tests[test_address]
 
@@ -167,9 +171,10 @@ class LeadData(ModelData):
         df = df[train_or_test].copy()
 
         # set test details for (future) test set to nan to eliminate leakage!
-        # can't know about max bll for future poisonings
+        # can't know about minmax bll,date for future poisonings!
         kid_in_test = ~df.kid_id.isin(df[test].kid_id)
-        df['kid_max_bll'] = df['kid_max_bll'].where(train & kid_in_test, df.test_bll)
+        df['kid_minmax_bll'] = df['kid_minmax_bll'].where(train & kid_in_test, df.test_bll)
+        df['kid_minmax_date'] = df['kid_minmax_date'].where(train & kid_in_test, df.test_date)
         test_columns = [c for c in df.columns if c.startswith('test_')]
         df.loc[ test, test_columns ] = np.nan
 
@@ -266,7 +271,7 @@ class LeadData(ModelData):
 
 
         df.set_index('test_id', inplace=True)
-        X,y = Xy(df, y_column = 'kid_max_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
+        X,y = Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
  
         self.X = X
         self.y = y > bll_threshold
@@ -325,8 +330,8 @@ class LeadData(ModelData):
             'tested': {'numerator': 1, 'func': np.max},
             'poisoned': {'numerator': lambda t: (t.test_bll > 5).astype(int), 'func':np.max},
             
-            'ebll_test_count': {'numerator': ebll_test_count},
-            'ebll_test_ratio': {'numerator': ebll_test_count, 'denominator': 1},
+            'ebll_count': {'numerator': ebll_test_count},
+            'ebll_ratio': {'numerator': ebll_test_count, 'denominator': 1},
             'avg_bll': {'numerator': 'test_bll', 'func':np.mean}, 
             'median_bll': {'numerator': 'test_bll', 'func':np.median}, 
             'max_bll': {'numerator': 'test_bll', 'func':np.max}, 
@@ -334,8 +339,11 @@ class LeadData(ModelData):
             'std_bll': {'numerator': 'test_bll', 'func':np.std}, 
             
             'kid_count': {'numerator': 'kid_id', 'func':count_unique},
-            'kid_ebll_count': {'numerator': ebll_kid_ids, 'func':count_unique},
-            'kid_ebll_prop': {'numerator': ebll_kid_ids, 'denominator': 'kid_id', 'func':count_unique},
+
+             # count number of kids with
+            'kid_ebll_here_count': {'numerator': ebll_kid_ids, 'func': count_unique }, # ebll
+            'kid_ebll_first_count': {'numerator': lambda t: (t.test_minmax & (t.test_bll > 5))}, # first ebll here
+            'kid_ebll_ever_count': {'numerator': lambda t: t.kid_id.where( t.kid_minmax_bll > 5 ), 'func': count_unique}, # ever ebll
         }
         if df is None: df = self.tests
         
@@ -343,7 +351,11 @@ class LeadData(ModelData):
             df = join_years(df, years, period, column='test_year')
         
         ag = [aggregate(df, TEST_COLUMNS, index=[level, 'test_year']) for level in levels]
-        for a in ag: a.index.rename('year', level='test_year', inplace=True)
+        for a in ag:
+            a['kid_ebll_here_prop'] = a['kid_ebll_here_count']/a['kid_count']
+            a['kid_ebll_first_prop'] = a['kid_ebll_first_count']/a['kid_count']
+            a['kid_ebll_ever_prop'] = a['kid_ebll_ever_count']/a['kid_count']
+            a.index.rename('year', level='test_year', inplace=True)
         return ag
 
 def join_years(left, years, period=None, column='year'):
@@ -455,5 +467,5 @@ def undersample_cv(d, train, p):
     return train & ((d.test_bll > 5).values | a) 
 
 def count_unique(series):
-    return len(series[series.notnull()].unique())
+    return series.nunique()
 
