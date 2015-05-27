@@ -344,6 +344,7 @@ class LeadData(ModelData):
             'kid_ebll_here_count': {'numerator': ebll_kid_ids, 'func': count_unique }, # ebll
             'kid_ebll_first_count': {'numerator': lambda t: (t.test_minmax & (t.test_bll > 5))}, # first ebll here
             'kid_ebll_ever_count': {'numerator': lambda t: t.kid_id.where( t.kid_minmax_bll > 5 ), 'func': count_unique}, # ever ebll
+            'kid_ebll_future_count': {'numerator': lambda t: t.kid_id.where( (t.kid_minmax_bll > 5) & (t.kid_minmax_date >= t.test_date) ), 'func': count_unique}, # future ebll
         }
         if df is None: df = self.tests
         
@@ -355,6 +356,7 @@ class LeadData(ModelData):
             a['kid_ebll_here_prop'] = a['kid_ebll_here_count']/a['kid_count']
             a['kid_ebll_first_prop'] = a['kid_ebll_first_count']/a['kid_count']
             a['kid_ebll_ever_prop'] = a['kid_ebll_ever_count']/a['kid_count']
+            a['kid_ebll_future_prop'] = a['kid_ebll_future_count']/a['kid_count']
             a.index.rename('year', level='test_year', inplace=True)
         return ag
 
