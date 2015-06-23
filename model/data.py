@@ -44,7 +44,7 @@ class LeadData(ModelData):
         'kid_first_name', 'kid_last_name', 'address_method', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', # leakage
         'test_date', 'kid_date_of_birth', #date 
-        'year', 'join_year', # used for join
+        'test_year', 'join_year', # used for join
         'kid_birth_days_to_test',  'address_inspection_init_days_to_test' # variables that confuse the model?
     }
     
@@ -99,8 +99,7 @@ class LeadData(ModelData):
             self.tables[table] = pd.read_csv(self.directory + "/" + table + '.csv')
             
     def transform(self, year, train_years,
-                kid, tract, address, ward,
-                address_history, # boolean true or false
+                kid, tract, address, ward, address_history, tract_history, # boolean true or false
                 bll_threshold=5, max_age=3*365, min_age=90, require_address=True, 
 
                 # these parameters have defaults that were established by testing
@@ -109,7 +108,7 @@ class LeadData(ModelData):
                 testing='all',  # all, never_tested
                 community_area = False, # don't include community area binaries
                 exclude={}, 
-                undersample=1,
+                undersample=None,
                 impute=True, normalize=True, drop_collinear=False,
                 census_tract_binarize=False,
                 ward_id = None,
@@ -257,10 +256,12 @@ class LeadData(ModelData):
 
         df = df.merge(spacetime, left_on=['address_id', 'join_year'], right_index=True, how='left', copy=False )
 
-        # additional features
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
+        if not tract_history:
+            exclude.update(['tract_inspections_.*', 'tract_tests_.*', 'acs_5yr_.*'])
         
+        # additional features
         if census_tract_binarize:
             exclude.remove('census_tract_id')
             CATEGORY_CLASSES['census_tract_id'] = self.tables['tracts'].census_tract_id.values
@@ -268,7 +269,6 @@ class LeadData(ModelData):
         if building_year_decade:
             df['address_building_year_decade'] = (df['address_building_year'] // 10)
             CATEGORY_CLASSES['address_building_year_decade'] =  df['address_building_year_decade'].dropna().unique()
-
 
         df.set_index('test_id', inplace=True)
         X,y = Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
@@ -279,8 +279,14 @@ class LeadData(ModelData):
         if drop_collinear:
             util.drop_collinear(X)
         
-        if undersample > 1:
-            self.cv = (undersample_cv(df, self.cv[0], 1.0/undersample), self.cv[1])
+        if undersample is not None:
+            # undersample is the desired *proportion* of the majority class
+            # calculate p, the desired proportion by which to undersample
+            y_train = self.y[self.cv[0]]
+            T = y_train.sum()
+            F = len(y_train) - T
+            p = (undersample)*T/((1-undersample)*F)
+            self.cv = (undersample_cv(df, self.cv[0], p), self.cv[1])
 
     def aggregate_inspections(self, years, levels):
         inspections = self.tables['inspections']
@@ -308,10 +314,10 @@ class LeadData(ModelData):
             'inspected': {'numerator':1, 'func': np.max},
             'hazard_int_count': {'numerator':'hazard_int'},
             'hazard_ext_count': {'numerator':'hazard_ext'},
-            'hazard_int_ratio': {'numerator':'hazard_int', 'denominator':1},
+            'hazard_int_prop': {'numerator':'hazard_int', 'denominator':1},
             'hazard_ext_ratio': {'numerator':'hazard_ext', 'denominator':1},
             'compliance_count': {'numerator': 'comply'},
-            'compliance_ratio': {'numerator': 'comply', 'denominator': 1},
+            'compliance_prop': {'numerator': 'comply', 'denominator': 1},
             'avg_init_to_comply_days': {'numerator': 'days_to_compliance', 'func':'mean'},
         }
         
@@ -322,7 +328,7 @@ class LeadData(ModelData):
             
         return r
     
-    def aggregate_tests(self, levels, period=1, years=None, df=None):
+    def aggregate_tests(self, levels, period=1, years=None, df=None, multiaddress=False):
         ebll_test_count = lambda t: (t.test_bll > 5).astype(int)
         ebll_kid_ids = lambda t: t.kid_id.where(t.test_bll > 5)
         TEST_COLUMNS = {
@@ -331,7 +337,7 @@ class LeadData(ModelData):
             'poisoned': {'numerator': lambda t: (t.test_bll > 5).astype(int), 'func':np.max},
             
             'ebll_count': {'numerator': ebll_test_count},
-            'ebll_ratio': {'numerator': ebll_test_count, 'denominator': 1},
+            'ebll_prop': {'numerator': ebll_test_count, 'denominator': 1},
             'avg_bll': {'numerator': 'test_bll', 'func':np.mean}, 
             'median_bll': {'numerator': 'test_bll', 'func':np.median}, 
             'max_bll': {'numerator': 'test_bll', 'func':np.max}, 
@@ -341,11 +347,12 @@ class LeadData(ModelData):
             'kid_count': {'numerator': 'kid_id', 'func':count_unique},
 
              # count number of kids with
-            'kid_ebll_here_count': {'numerator': ebll_kid_ids, 'func': count_unique }, # ebll
+            'kid_ebll_here_count': {'numerator': ebll_kid_ids, 'func': count_unique }, # ebll here
             'kid_ebll_first_count': {'numerator': lambda t: (t.test_minmax & (t.test_bll > 5))}, # first ebll here
-            'kid_ebll_ever_count': {'numerator': lambda t: t.kid_id.where( t.kid_minmax_bll > 5 ), 'func': count_unique}, # ever ebll
-            'kid_ebll_future_count': {'numerator': lambda t: t.kid_id.where( (t.kid_minmax_bll > 5) & (t.kid_minmax_date >= t.test_date) ), 'func': count_unique}, # future ebll
         }
+        if multiaddress:
+            TEST_COLUMNS['kid_ebll_ever_count'] = {'numerator': lambda t: t.kid_id.where( t.kid_minmax_bll > 5 ), 'func': count_unique} # ever ebll
+            TEST_COLUMNS['kid_ebll_future_count'] = {'numerator': lambda t: t.kid_id.where( (t.kid_minmax_bll > 5) & (t.kid_minmax_date >= t.test_date) ), 'func': count_unique} # future ebll
         if df is None: df = self.tests
         
         if period != 1:
@@ -355,8 +362,9 @@ class LeadData(ModelData):
         for a in ag:
             a['kid_ebll_here_prop'] = a['kid_ebll_here_count']/a['kid_count']
             a['kid_ebll_first_prop'] = a['kid_ebll_first_count']/a['kid_count']
-            a['kid_ebll_ever_prop'] = a['kid_ebll_ever_count']/a['kid_count']
-            a['kid_ebll_future_prop'] = a['kid_ebll_future_count']/a['kid_count']
+            if multiaddress:
+                a['kid_ebll_ever_prop'] = a['kid_ebll_ever_count']/a['kid_count']
+                a['kid_ebll_future_prop'] = a['kid_ebll_future_count']/a['kid_count']
             a.index.rename('year', level='test_year', inplace=True)
         return ag
 
@@ -393,13 +401,16 @@ def binarize(df, category_classes):
         #binarized = pd.get_dummies(df[category], prefix=df[category])#.drop(classes[len(classes)-1], axis=1, inplace=True)
         #df = df.merge(binarized, left_index=True, right_index=True, copy=False)
         
-    df = df.drop(columns, axis=1, copy=False)                                      
+    df.drop(columns, axis=1, inplace=True)                                      
     return df
 
 # returns endogenous and exogenous variables
 # normalization requires imputation (can't normalize null values)
 # training mask is used for normalization
 def Xy(df, y_column, include=None, exclude=None, impute=True, normalize=True, train=None):
+    y = df[y_column]
+    exclude.add(y_column)
+
     X = select_features(df, include, exclude)
     
     X = binarize(X, CATEGORY_CLASSES)
@@ -421,8 +432,6 @@ def Xy(df, y_column, include=None, exclude=None, impute=True, normalize=True, tr
             d = preprocessing.StandardScaler().fit_transform(d)
         X = pd.DataFrame(d, index=X.index, columns = X.columns)
 
-    y = df[y_column]
-    X.drop(y_column, axis=1, inplace=True)
     
     return (X,y)
 
