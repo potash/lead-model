@@ -106,10 +106,12 @@ class LeadData(ModelData):
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 address_test_periods = [None],
                 testing='all',  # all, never_tested
+                testing_max_age=None,
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=None,
                 impute=True, normalize=True, drop_collinear=False,
+                multiaddress=False,
                 census_tract_binarize=False,
                 ward_id = None,
                 building_year_decade=True,
@@ -149,6 +151,10 @@ class LeadData(ModelData):
             test = (df.test_date >= today) & (df.kid_date_of_birth < today) & (df.min_sample_date >= today)
         else:
             print 'Warning: testing option \'{}\' not supported'.format(testing)
+
+        if testing_max_age is not None:
+            test = test & df.kid_date_of_birth.apply(lambda d:(today - d).days <= testing_max_age)
+        print test.sum()
 
         # want to get a single test for each future kid
         # if they get poisoned, take their first poisoned test
@@ -216,7 +222,7 @@ class LeadData(ModelData):
         # spatio-temporal
         years = range(year-train_years, year)
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
-        tests_tract_ag = self.aggregate_tests(levels=['census_tract_id'], df=past_tests_tract)[0]
+        tests_tract_ag = self.aggregate_tests(levels=['census_tract_id'], df=past_tests_tract, multiaddress=multiaddress)[0]
 
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
         prefix_columns(tests_tract_ag, 'tract_tests_1y_')
@@ -225,7 +231,7 @@ class LeadData(ModelData):
         prefix_columns(inspections_address_ag, 'address_inspections_cumulative_')
         spacetime_address = inspections_address_ag
         for period in address_test_periods:
-            ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=past_tests_address)[0]
+            ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=past_tests_address, multiaddress=multiaddress)[0]
             prefix = str(period) + 'y' if period is not None else 'all'
             prefix_columns(ta, 'address_tests_' + prefix + '_')
             spacetime_address = spacetime_address.merge(ta, how='outer', left_index=True, right_index=True, copy=False)
