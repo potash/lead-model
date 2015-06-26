@@ -5,6 +5,7 @@ from scipy import stats
 import re
 import numpy as np
 import collections
+
 import random
 import datetime
 import model
@@ -47,6 +48,10 @@ class LeadData(ModelData):
         'test_year', 'join_year', # used for join
         'kid_birth_days_to_test',  'address_inspection_init_days_to_test' # variables that confuse the model?
     }
+
+    DATE_COLUMNS = {
+        'inspections' : ['init_date', 'comply_date']
+    }
     
     KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
                     'address_inspection_init_date', 'address_inspection_comply_date']
@@ -74,7 +79,8 @@ class LeadData(ModelData):
         self.tests = pd.read_sql('select * from output.tests', engine)
         
         for table in self.tables:
-            self.tables[table] = pd.read_sql('select * from output.' + table, engine)
+            date_columns = self.DATE_COLUMNS[table] if table in self.DATE_COLUMNS else None
+            self.tables[table] = pd.read_sql('select * from output.' + table, engine, parse_dates=date_columns)
             
     def write(self):
         self.tests.to_pickle(self.directory + '/tests.pkl')
