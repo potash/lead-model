@@ -14,8 +14,8 @@ import util
 import warnings
 
 CATEGORY_CLASSES = {
-    'address_building_condition': ['SOUND', 'NEEDS MINOR REPAIR',
-        'NEEDS MAJOR REPAIR', 'UNINHABITABLE'],
+#    'address_building_condition': ['SOUND', 'NEEDS MINOR REPAIR',
+#        'NEEDS MAJOR REPAIR', 'UNINHABITABLE'],
     'kid_sex' : ['M', 'F'],
     'test_type' : ['V', 'C'],
     'surname_ethnicity': ['black', 'white', 'api', 'aian', 'p2race'],
@@ -41,7 +41,7 @@ class LeadData(ModelData):
     # default exclusions set
     # TODO: organize and explain these
     EXCLUDE = { 
-        'kid_id', 'test_id', 'address_id', 'census_tract_id', # ids
+        'kid_id', 'test_id', 'address_id', 'complex_id', 'census_tract_id', # ids
         'kid_first_name', 'kid_last_name', 'address_method', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', # leakage
         'test_date', 'kid_date_of_birth', #date 
@@ -57,7 +57,7 @@ class LeadData(ModelData):
                     'address_inspection_init_date', 'address_inspection_comply_date']
     
     def __init__(self, source, directory=None, 
-                 tables=['inspections', 'tracts', 'wards', 'addresses', 'acs']):
+                 tables=['inspections', 'tracts', 'wards', 'addresses', 'complexes', 'acs']):
         self.source = source
         self.directory = directory
         
@@ -128,6 +128,7 @@ class LeadData(ModelData):
 
         exclude = self.EXCLUDE.union(exclude)
         df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
+        df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
         df['test_year'] = df['test_date'].apply(lambda d: d.year)
         age_mask = (df.test_kid_age_days >=  min_age) & (df.test_kid_age_days <= max_age)
         df = df[age_mask]
@@ -170,8 +171,9 @@ class LeadData(ModelData):
         first_test = pd.Series(df.index.isin(testix), index=df.index)
         test = first_test & ((df.test_minmax & (df.test_bll > 5)) | (df.test_bll <= 5))
 
+        # store past tests at all locations in train+test set for aggregation
         test_tract = past_tests.census_tract_id.isin(df.census_tract_id)
-        test_address = past_tests.address_id.isin(df.address_id)
+        test_address = past_tests.complex_id.isin(df.complex_id)
         past_tests_tract = past_tests[test_tract]
         past_tests_address = past_tests[test_address]
 
@@ -216,6 +218,7 @@ class LeadData(ModelData):
         if not kid:
             exclude.add('kid_.*')
         if not address:
+            #TODO update this for complexes
             exclude.update(['address_building_.*', 'address_assessor_.*', 'address_lat', 'address_lng'])
         if tract:
             prefix_columns(self.tables['tracts'], 'tract_', 'census_tract_id')
@@ -227,7 +230,7 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
-        inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'address_id'])
+        inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         tests_tract_ag = self.aggregate_tests(levels=['census_tract_id'], df=past_tests_tract, multiaddress=multiaddress)[0]
 
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
@@ -237,15 +240,15 @@ class LeadData(ModelData):
         prefix_columns(inspections_address_ag, 'address_inspections_cumulative_')
         spacetime_address = inspections_address_ag
         for period in address_test_periods:
-            ta = self.aggregate_tests(levels=['address_id'], years=years, period=period, df=past_tests_address, multiaddress=multiaddress)[0]
+            ta = self.aggregate_tests(levels=['complex_id'], years=years, period=period, df=past_tests_address, multiaddress=multiaddress)[0]
             prefix = str(period) + 'y' if period is not None else 'all'
             prefix_columns(ta, 'address_tests_' + prefix + '_')
             spacetime_address = spacetime_address.merge(ta, how='outer', left_index=True, right_index=True, copy=False)
         
         
-        left = df[['address_id', 'census_tract_id', 'join_year']].drop_duplicates()
+        left = df[['complex_id', 'census_tract_id', 'join_year']].drop_duplicates()
         spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
-        spacetime = spacetime.merge(spacetime_address, how='left', left_on=['address_id', 'join_year'], right_index=True, copy=False)
+        spacetime = spacetime.merge(spacetime_address, how='left', left_on=['complex_id', 'join_year'], right_index=True, copy=False)
 
         # acs data
         left = df[['census_tract_id', 'join_year']].drop_duplicates()
@@ -259,14 +262,14 @@ class LeadData(ModelData):
         acs_filled['census_tract_id'] = acs['census_tract_id']
 
         spacetime = spacetime.merge(acs_filled, on=['census_tract_id', 'join_year'], how='left', copy=False)
-        spacetime.set_index(['address_id', 'join_year'], inplace=True)
+        spacetime.set_index(['complex_id', 'join_year'], inplace=True)
         spacetime.drop(['census_tract_id'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
         
         if spacetime_normalize_method is not None:
             spacetime = spacetime.groupby(level='join_year').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
-        df = df.merge(spacetime, left_on=['address_id', 'join_year'], right_index=True, how='left', copy=False )
+        df = df.merge(spacetime, left_on=['complex_id', 'join_year'], right_index=True, how='left', copy=False )
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
@@ -279,8 +282,10 @@ class LeadData(ModelData):
             CATEGORY_CLASSES['census_tract_id'] = self.tables['tracts'].census_tract_id.values
 
         if building_year_decade:
-            df['address_building_year_decade'] = (df['address_building_year'] // 10)
-            CATEGORY_CLASSES['address_building_year_decade'] =  df['address_building_year_decade'].dropna().unique()
+            df['complex_building_year_decade'] = (df['complex_building_year'] // 10)
+            CATEGORY_CLASSES['complex_building_year_decade'] =  df['complex_building_year_decade'].dropna().unique()
+            #df['address_building_year_decade'] = (df['address_building_year'] // 10)
+            #CATEGORY_CLASSES['address_building_year_decade'] =  df['address_building_year_decade'].dropna().unique()
 
         df.set_index('test_id', inplace=True)
         X,y = Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
