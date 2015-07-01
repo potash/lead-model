@@ -148,11 +148,3 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
         p = Popen(['psql', '-c', sql], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
         psql_out = p.communicate(input=frame.to_csv(index=index))[0]
         print psql_out.decode()
-
-        # check for potentially case sensitivity issues (GH7815)
-        self.meta.reflect()
-        if name not in self.engine.table_names(schema=schema or self.meta.schema):
-            warnings.warn("The provided table name '{0}' is not found exactly "
-                          "as such in the database after writing the table, "
-                          "possibly due to case sensitivity issues. Consider "
-                          "using lower case table names.".format(name), UserWarning)
