@@ -150,6 +150,12 @@ class LeadData(ModelData):
         # get tests relevant to date
         today = datetime.date(year, 1, 1)
         past_tests = df[df.test_date < today] # for test aggregation
+
+        # censor minmax when it's in the future. for simplicity replaced with current test rather than minmax up to that date.
+        past_minmax = df['kid_minmax_date'] < today 
+        df['kid_minmax_bll'] = df['kid_minmax_bll'].where(past_minmax, df.test_bll)
+        df['kid_minmax_date'] = df['kid_minmax_date'].where(past_minmax, df.test_date)
+
         date_from = datetime.date(year - train_years, 1, 1)
         date_mask = (df.test_date >= date_from)
         df = df[date_mask]
@@ -193,9 +199,6 @@ class LeadData(ModelData):
 
         # set test details for (future) test set to nan to eliminate leakage!
         # can't know about minmax bll,date for future poisonings!
-        kid_in_test = ~df.kid_id.isin(df[test].kid_id)
-        df['kid_minmax_bll'] = df['kid_minmax_bll'].where(train & kid_in_test, df.test_bll)
-        df['kid_minmax_date'] = df['kid_minmax_date'].where(train & kid_in_test, df.test_date)
         test_columns = [c for c in df.columns if c.startswith('test_')]
         df.loc[ test, test_columns ] = np.nan
 
