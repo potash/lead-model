@@ -111,6 +111,8 @@ class LeadData(ModelData):
                 # these parameters have defaults that were established by testing
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 address_test_periods = [None],
+                training='all', # all, preminmax
+                training_max_age=None,
                 testing='all',  # all, never_tested
                 testing_max_age=None,
                 community_area = False, # don't include community area binaries
@@ -129,6 +131,9 @@ class LeadData(ModelData):
         exclude = self.EXCLUDE.union(exclude)
         df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
         df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
+        df['complex_assessor_null'].fillna(True, inplace=True)
+        df['complex_building_null'].fillna(True, inplace=True)
+
         df['test_year'] = df['test_date'].apply(lambda d: d.year)
         age_mask = (df.test_kid_age_days >=  min_age) & (df.test_kid_age_days <= max_age)
         df = df[age_mask]
@@ -141,7 +146,7 @@ class LeadData(ModelData):
             exclude.update({'address_null', 'ward_null', 'census_tract_null', 'community_area_null'})
         if exclude_addresses is not None:
             df = df[~df.address_id.isin(exclude_addresses)]
-        
+
         # get tests relevant to date
         today = datetime.date(year, 1, 1)
         past_tests = df[df.test_date < today] # for test aggregation
@@ -151,7 +156,11 @@ class LeadData(ModelData):
 
         # cross validation
         train = (df.test_date < today) 
-        
+        if training == 'preminmax':
+            train = train & (df.test_date <= df.kid_minmax_date)
+        if training_max_age is not None:
+            train = train & (df.test_kid_age_days <= training_max_age)
+      
         if testing == 'all':
             test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
         elif testing == 'untested':
@@ -160,8 +169,7 @@ class LeadData(ModelData):
             print 'Warning: testing option \'{}\' not supported'.format(testing)
 
         if testing_max_age is not None:
-            test = test & df.kid_date_of_birth.apply(lambda d:(today - d).days <= testing_max_age)
-        print test.sum()
+            test = test & (df.test_kid_age_days <= testing_max_age)
 
         # want to get a single test for each future kid
         # if they get poisoned, take their first poisoned test
@@ -233,6 +241,7 @@ class LeadData(ModelData):
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         tests_tract_ag = self.aggregate_tests(levels=['census_tract_id'], df=past_tests_tract, multiaddress=multiaddress)[0]
 
+
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
         prefix_columns(tests_tract_ag, 'tract_tests_1y_')
         spacetime_tract = inspections_tract_ag.join(tests_tract_ag, how='outer')
@@ -265,7 +274,7 @@ class LeadData(ModelData):
         spacetime.set_index(['complex_id', 'join_year'], inplace=True)
         spacetime.drop(['census_tract_id'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
-        
+
         if spacetime_normalize_method is not None:
             spacetime = spacetime.groupby(level='join_year').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
