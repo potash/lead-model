@@ -10,6 +10,12 @@ def create_engine(**kwargs):
     return sqlalchemy.create_engine('postgresql://{user}:{pwd}@{host}:5432/{db}'.format(
             host=os.environ['PGHOST'], db=os.environ['PGDATABASE'], user=os.environ['PGUSER'], pwd=os.environ['PGPASSWORD']))
 
+def execute_sql(engine, sql):
+    conn = engine.connect()
+    trans = conn.begin()
+    conn.execute(sql)
+    trans.commit()
+
 def get_class(name):
     i = name.rfind('.')
     cls = name[i+1:]
@@ -34,6 +40,9 @@ def randdates(start,end, size):
     for i in range(size):
         d[i] = start + r[i]
     return d
+
+def count_unique(series):
+    return series.nunique()
 
 # normalize a dataframes columns
 # method = 'normalize': use standard score i.e. (X - \mu) / \sigma
@@ -133,8 +142,9 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
         table = pandas.io.sql.SQLTable(name, self, frame=frame, index=index,
                                        if_exists=if_exists, index_label=index_label,
                                        schema=schema, dtype=dtype)
+        existed = table.exists()
         table.create()
-        if pk is not None:
+        if pk is not None and not existed:
             if isinstance(pk, str):
                 pks = pk
             else:
