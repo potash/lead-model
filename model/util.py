@@ -73,6 +73,10 @@ def cross_join(left, right, lsuffix='_left', rsuffix='_right'):
     left.index = np.zeros(len(left))
     right.index = np.zeros(len(right))
     return left.join(right, lsuffix=lsuffix, rsuffix=rsuffix)
+
+def set_types(df, types_dict):
+    for column, dtype in types_dict.iteritems():
+        df[column] = df[column].astype(dtype)
     
 def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left', rsuffix='_right'):
     left_index = left[left_on].reset_index()
@@ -154,7 +158,7 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
 
 
         from subprocess import Popen, PIPE, STDOUT
-        sql = "COPY {schema_name}.{table_name} FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(schema_name=schema, table_name=name)
+        sql = "COPY {schema_name}.{table_name} ({columns}) FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(schema_name=schema, table_name=name, columns= str.join(',', frame.columns))
         p = Popen(['psql', '-c', sql], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
         psql_out = p.communicate(input=frame.to_csv(index=index))[0]
         print psql_out.decode(),
