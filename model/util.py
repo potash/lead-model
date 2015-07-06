@@ -157,4 +157,6 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
         sql = "COPY {schema_name}.{table_name} FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(schema_name=schema, table_name=name)
         p = Popen(['psql', '-c', sql], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
         psql_out = p.communicate(input=frame.to_csv(index=index))[0]
-        print psql_out.decode()
+        print psql_out.decode(),
+        return p.wait()
+            
