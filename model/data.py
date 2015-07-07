@@ -383,7 +383,7 @@ class LeadData(ModelData):
 def get_aggregation(table_name, level_deltas, end_dates, left, engine):
     for level in level_deltas:
         for delta in level_deltas[level]:
-            t = pd.read_sql(table_name, level, end_dates, delta, engine)
+            t = get_aggregate(table_name, level, end_dates, delta, engine)
             t.rename(columns={'aggregation_id':level, 'aggregation_end':'join_year'}, inplace=True)
             t['join_year']=t['aggregation_end'].apply(lambda d: d.year)
             t.drop(['aggregation_delta', 'aggregation_level'],inplace=True,axis=1)
