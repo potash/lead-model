@@ -11,7 +11,7 @@ import datetime
 import model
 from lead.output.aggregate import aggregate
 from lead.output import tests_aggregated,buildings_aggregated
-from util import prefix_columns
+from util import prefix_columns, join_years
 import util
 import warnings
 
@@ -236,7 +236,7 @@ class LeadData(ModelData):
         
         all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
         left = df[ all_levels + ['join_year']].drop_duplicates()
-        spacetime = tests_aggregated.read_sql_batch(engine, test_aggregations, years,left)
+        spacetime = get_aggregation('output.tests_aggregated', test_aggregations, years, left, engine)
         
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
@@ -377,17 +377,34 @@ class LeadData(ModelData):
                 a['kid_ebll_future_prop'] = a['kid_ebll_future_count']/a['kid_count']
             a.index.rename('year', level='ag_year', inplace=True)
         return ag
+    
+# left is an optional dataframe with index <level>, aggregaton_end
+# it is left-joined to ensure returned df has the specified rows
+def get_aggregation(table_name, level_deltas, end_dates, left, engine):
+    for level in level_deltas:
+        for delta in level_deltas[level]:
+            t = pd.read_sql(table_name, level, end_dates, delta, engine)
+            t.rename(columns={'aggregation_id':level, 'aggregation_end':'join_year'}, inplace=True)
+            t['join_year']=t['aggregation_end'].apply(lambda d: d.year)
+            t.drop(['aggregation_delta', 'aggregation_level'],inplace=True,axis=1)
+            t.set_index([level,'aggregation_end'], inplace=True)
+            
+            prefix = str(delta) + 'y' if delta != -1 else 'all'
+            util.prefix_columns(t, level[:-3] + '_tests_' + prefix + '_')
+            left = left.merge(t, on=[level, 'aggregation_end'], how='left', copy=False)
 
-def join_years(left, years, period=None, column='year'):
-    years = pd.DataFrame({column:years})
-    if period is None:
-        cond = lambda df: (df[column + '_left'] <= df[column + '_right'])
-    else:
-        cond = lambda df: (df[column + '_left'] <= df[column + '_right']) & (df[column +'_left'] > df[column + '_right'] - period)
-        
-    df = util.conditional_join(left, years, left_on=[column], right_on=[column], condition=cond)
-    df.rename(columns={column + '_y': column}, inplace=True)
-    return df
+    left.fillna(0, inplace=True)
+    return left
+
+def get_aggregate(table_name, level, end_dates, delta, engine):
+    end_dates='(' + str.join(',',map(lambda d: "'" + str(d) + "'", end_dates)) + ')'
+    sql = """
+    select * from {table_name} where aggregation_level='{level}' 
+    and aggregation_end in {end_dates} and aggregation_delta = {delta}
+    """.format(table_name=table_name, level=level, end_dates=end_dates, delta=delta)
+
+    t = pd.read_sql(sql, engine)
+    return t
 
 # generate year, month, day features from specified date features
 def expand_dates(df, columns=[]):

@@ -101,6 +101,18 @@ def conditional_join(left, right, left_on, right_on, condition, lsuffix='_left',
     
     return df
 
+
+def join_years(left, years, period=None, column='year'):
+    years = pd.DataFrame({column:years})
+    if period is None:
+        cond = lambda df: (df[column + '_left'] <= df[column + '_right'])
+    else:
+        cond = lambda df: (df[column + '_left'] <= df[column + '_right']) & (df[column +'_left'] > df[column + '_right'] - period)
+        
+    df = conditional_join(left, years, left_on=[column], right_on=[column], condition=cond)
+    df.rename(columns={column + '_y': column}, inplace=True)
+    return df
+
 import tempfile
 import pandas.io.sql
 
