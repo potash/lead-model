@@ -10,6 +10,7 @@ import random
 import datetime
 import model
 from lead.output.aggregate import aggregate
+from lead.output import tests_aggregated,buildings_aggregated
 import util
 import warnings
 
@@ -110,7 +111,7 @@ class LeadData(ModelData):
 
                 # these parameters have defaults that were established by testing
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
-                address_test_periods = [None],
+                test_aggregations={},
                 max_age = None,
                 min_age = None,
                 training='all', # all, preminmax
@@ -121,7 +122,6 @@ class LeadData(ModelData):
                 exclude={}, 
                 undersample=None,
                 impute=True, normalize=True, drop_collinear=False,
-                multiaddress=False,
                 census_tract_binarize=False,
                 ward_id = None,
                 building_year_decade=True,
@@ -240,25 +240,17 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
+        engine = util.create_engine()
+        
+        left = df[ test_aggregations.keys() + ['join_year']].drop_duplicates()
+        spacetime = tests_aggregated.read_sql(engine, test_aggregations, years,left)
+        
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
-        tests_tract_ag = self.aggregate_tests(levels=['census_tract_id'], years=years, period=1, df=past_tests_tract, multiaddress=multiaddress)[0]
-
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
-        prefix_columns(tests_tract_ag, 'tract_tests_1y_')
-        spacetime_tract = inspections_tract_ag.join(tests_tract_ag, how='outer')
-
-        prefix_columns(inspections_address_ag, 'address_inspections_cumulative_')
-        spacetime_address = inspections_address_ag
-        for period in address_test_periods:
-            ta = self.aggregate_tests(levels=['complex_id'], years=years, period=period, df=past_tests_address, multiaddress=multiaddress)[0]
-            prefix = str(period) + 'y' if period is not None else 'all'
-            prefix_columns(ta, 'address_tests_' + prefix + '_')
-            spacetime_address = spacetime_address.merge(ta, how='outer', left_index=True, right_index=True, copy=False)
+        prefix_columns(inspections_address_ag, 'address_inspections_all_')
         
-        
-        left = df[['complex_id', 'census_tract_id', 'join_year']].drop_duplicates()
-        spacetime = left.merge(spacetime_tract, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
-        spacetime = spacetime.merge(spacetime_address, how='left', left_on=['complex_id', 'join_year'], right_index=True, copy=False)
+        spacetime = spacetime.merge(inspections_tract_ag, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
+        spacetime = spacetime.merge(inspections_address_ag, how='left', left_on=['complex_id', 'join_year'], right_index=True, copy=False)
 
         # acs data
         left = df[['census_tract_id', 'join_year']].drop_duplicates()
