@@ -11,7 +11,8 @@ import datetime
 import model
 from lead.output.aggregate import aggregate
 from lead.output import tests_aggregated,buildings_aggregated
-import util
+#from util import prefix_columns
+#import util
 import warnings
 
 CATEGORY_CLASSES = {
@@ -132,9 +133,9 @@ class LeadData(ModelData):
 
         exclude = self.EXCLUDE.union(exclude)
         df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
-        df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
-        df['complex_assessor_null'].fillna(True, inplace=True)
-        df['complex_building_null'].fillna(True, inplace=True)
+#        df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
+#        df['complex_assessor_null'].fillna(True, inplace=True)
+#        df['complex_building_null'].fillna(True, inplace=True)
 
         if min_age is not None:
             df = df[(df.test_kid_age_days >=  min_age)]
@@ -472,9 +473,6 @@ def select_features(df, include=None, exclude=None, regex=True):
     
     df = df.reindex(columns = columns)
     return df
-
-def prefix_columns(df, prefix, ignore=[]):
-    df.columns =  [prefix + c if c not in ignore else c for c in df.columns]
 
 def null_columns(df):
     nulcols = df.isnull().sum() == len(df)
