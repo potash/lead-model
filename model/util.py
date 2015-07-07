@@ -138,13 +138,13 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
             be a SQLAlchemy type.
         pk: name of column(s) to set as primary keys
         """
-        if dtype is not None:
-            import sqlalchemy.sql.type_api as type_api
-
-            for col, my_type in dtype.items():
-                if not issubclass(my_type, type_api.TypeEngine):
-                    raise ValueError('The type of %s is not a SQLAlchemy '
-                                     'type ' % col)
+        #if dtype is not None:
+        #    from sqlalchemy.types import TypeEngine
+#
+#           for col, my_type in dtype.items():
+#                if not issubclass(my_type, TypeEngine):
+#                    raise ValueError('The type of %s is not a SQLAlchemy '
+#                                     'type ' % col)
 
         table = pandas.io.sql.SQLTable(name, self, frame=frame, index=index,
                                        if_exists=if_exists, index_label=index_label,
