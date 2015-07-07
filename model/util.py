@@ -16,6 +16,9 @@ def execute_sql(engine, sql):
     conn.execute(sql)
     trans.commit()
 
+def datetime64(year,month,day):
+    return np.datetime64( ("%04d" % year) + '-' +  ("%02d" % month) + '-' + ("%02d" % day))
+
 def get_class(name):
     i = name.rfind('.')
     cls = name[i+1:]

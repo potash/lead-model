@@ -47,7 +47,7 @@ class LeadData(ModelData):
         'kid_first_name', 'kid_last_name', 'address_method', 'address', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
         'test_date', 'kid_date_of_birth', #date 
-        'join_year', # used for join
+        'join_year', 'aggregation_end',# used for join
         'kid_birth_days_to_test',  'address_inspection_init_days_to_test' # variables that confuse the model?
     }
 
@@ -133,7 +133,6 @@ class LeadData(ModelData):
         exclude = self.EXCLUDE.union(exclude)
         self.tests = self.tests[self.tests.kid_date_of_birth.notnull()]
         df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
-        print 'complex_id' in df.columns
 #        df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
 #        df['complex_assessor_null'].fillna(True, inplace=True)
 #        df['complex_building_null'].fillna(True, inplace=True)
@@ -214,6 +213,7 @@ class LeadData(ModelData):
             df.drop(c + '_date', axis=1, inplace=True)
         
         df['join_year'] = df.test_date.apply(lambda d: min(d.year-1, year-1)) 
+        df['aggregation_end'] = df.test_date.apply(lambda d: util.datetime64(min(d.year, year), today.month, today.day)) 
         
         if test_date_season:
             df['test_date_month'] = df['test_date'].apply(lambda d: d.month).where(past_test)
@@ -232,11 +232,12 @@ class LeadData(ModelData):
         
         # spatio-temporal
         years = range(year-train_years, year)
+        end_dates = df['aggregation_end'].unique()
         engine = util.create_engine()
         
         all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
-        left = df[ all_levels + ['join_year']].drop_duplicates()
-        spacetime = get_aggregation('output.tests_aggregated', test_aggregations, years, left, engine)
+        left = df[ all_levels + ['join_year', 'aggregation_end']].drop_duplicates()
+        spacetime = get_aggregation('output.tests_aggregated', test_aggregations, end_dates, left, engine)
         
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
@@ -257,14 +258,14 @@ class LeadData(ModelData):
         acs_filled['census_tract_id'] = acs['census_tract_id']
 
         spacetime = spacetime.merge(acs_filled, on=['census_tract_id', 'join_year'], how='left', copy=False)
-        spacetime.set_index(['address_id', 'join_year'], inplace=True)
-        spacetime.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id'], axis=1, inplace=True)
+        spacetime.set_index(['address_id', 'aggregation_end'], inplace=True)
+        spacetime.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id', 'join_year'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
 
         if spacetime_normalize_method is not None:
-            spacetime = spacetime.groupby(level='join_year').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
+            spacetime = spacetime.groupby(level='aggregation_end').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
-        df = df.merge(spacetime, left_on=['address_id', 'join_year'], right_index=True, how='left', copy=False )
+        df = df.merge(spacetime, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
@@ -384,13 +385,13 @@ def get_aggregation(table_name, level_deltas, end_dates, left, engine):
     for level in level_deltas:
         for delta in level_deltas[level]:
             t = get_aggregate(table_name, level, end_dates, delta, engine)
-            t.rename(columns={'aggregation_id':level, 'aggregation_end':'join_year'}, inplace=True)
-            t['join_year']=t['aggregation_end'].apply(lambda d: d.year)
+            t.rename(columns={'aggregation_id':level}, inplace=True)
             t.drop(['aggregation_delta', 'aggregation_level'],inplace=True,axis=1)
             t.set_index([level,'aggregation_end'], inplace=True)
             
             prefix = str(delta) + 'y' if delta != -1 else 'all'
             util.prefix_columns(t, level[:-3] + '_tests_' + prefix + '_')
+            t.reset_index(inplace=True) # should add exclude arg to prefix_columns
             left = left.merge(t, on=[level, 'aggregation_end'], how='left', copy=False)
 
     left.fillna(0, inplace=True)
