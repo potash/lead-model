@@ -11,8 +11,8 @@ import datetime
 import model
 from lead.output.aggregate import aggregate
 from lead.output import tests_aggregated,buildings_aggregated
-#from util import prefix_columns
-#import util
+from util import prefix_columns
+import util
 import warnings
 
 CATEGORY_CLASSES = {
@@ -44,7 +44,7 @@ class LeadData(ModelData):
     # TODO: organize and explain these
     EXCLUDE = { 
         'kid_id', 'test_id', 'address_id', 'complex_id', 'census_tract_id', # ids
-        'kid_first_name', 'kid_last_name', 'address_method', # strings
+        'kid_first_name', 'kid_last_name', 'address_method', 'address', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
         'test_date', 'kid_date_of_birth', #date 
         'join_year', # used for join
@@ -59,7 +59,7 @@ class LeadData(ModelData):
                     'address_inspection_init_date', 'address_inspection_comply_date']
     
     def __init__(self, source, directory=None, 
-                 tables=['inspections', 'tracts', 'wards', 'addresses', 'complexes', 'acs']):
+		    tables=['inspections', 'addresses', 'acs']):
         self.source = source
         self.directory = directory
         
@@ -123,8 +123,7 @@ class LeadData(ModelData):
                 exclude={}, 
                 undersample=None,
                 impute=True, normalize=True, drop_collinear=False,
-                census_tract_binarize=False,
-                ward_id = None,
+                ward_id = None, # filter to this particular ward
                 building_year_decade=True,
                 test_date_season=True,
                 exclude_addresses=[296888, # Aunt Martha's Health Center
@@ -132,7 +131,9 @@ class LeadData(ModelData):
                                    447803]): # Former Maryville Hospital
 
         exclude = self.EXCLUDE.union(exclude)
+        self.tests = self.tests[self.tests.kid_date_of_birth.notnull()]
         df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
+        print 'complex_id' in df.columns
 #        df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
 #        df['complex_assessor_null'].fillna(True, inplace=True)
 #        df['complex_building_null'].fillna(True, inplace=True)
@@ -154,7 +155,6 @@ class LeadData(ModelData):
 
         # get tests relevant to date
         today = datetime.date(year, 1, 1)
-        past_tests = df[df.test_date < today] # for test aggregation
 
         date_from = datetime.date(year - train_years, 1, 1)
         date_mask = (df.test_date >= date_from)
@@ -185,17 +185,11 @@ class LeadData(ModelData):
         first_test = pd.Series(df.index.isin(testix), index=df.index)
         test = first_test & ( ((df.kid_minmax_date >= today) & (df.kid_minmax_bll > 5)) | (df.kid_minmax_bll <= 5))
 
-        # store past tests at all locations in train+test set for aggregation
-        test_tract = past_tests.census_tract_id.isin(df.census_tract_id)
-        test_address = past_tests.complex_id.isin(df.complex_id)
-        past_tests_tract = past_tests[test_tract]
-        past_tests_address = past_tests[test_address]
-
         train_or_test = train | test
         train = train.loc[train_or_test]
         test = test.loc[train_or_test]
         self.cv = (train,test)
-        df = df[train_or_test].copy()
+        df = df[train_or_test]
 
         # set test details for (future) test set to nan to eliminate leakage!
         # can't know about minmax bll,date for future poisonings!
@@ -208,7 +202,7 @@ class LeadData(ModelData):
         epoch = datetime.date.fromtimestamp(0)
         past_test = df.test_date < today # aka training
         mean_age = datetime.timedelta(df['test_kid_age_days'].mean())
-        future_test_date = (df['kid_date_of_birth'] + mean_age).apply(lambda d: max(d, today))
+        future_test_date = df['kid_date_of_birth'].apply(lambda d: max(d+mean_age, today))
         df['test_date'] = df['test_date'].where(past_test, future_test_date)
 
         df['kid_date_of_birth_month'] = df['kid_date_of_birth'].apply(lambda d: d.month)
@@ -231,9 +225,6 @@ class LeadData(ModelData):
         if not address:
             #TODO update this for complexes
             exclude.update(['address_building_.*', 'address_assessor_.*', 'address_lat', 'address_lng'])
-        if tract:
-            prefix_columns(self.tables['tracts'], 'tract_', 'census_tract_id')
-            df = df.merge(self.tables['tracts'], on=['census_tract_id'], how='left', copy=False)
         if not ward:
             exclude.add('ward_id')
         if not community_area:
@@ -243,8 +234,9 @@ class LeadData(ModelData):
         years = range(year-train_years, year)
         engine = util.create_engine()
         
-        left = df[ test_aggregations.keys() + ['join_year']].drop_duplicates()
-        spacetime = tests_aggregated.read_sql(engine, test_aggregations, years,left)
+        all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
+        left = df[ all_levels + ['join_year']].drop_duplicates()
+        spacetime = tests_aggregated.read_sql_batch(engine, test_aggregations, years,left)
         
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
@@ -265,30 +257,23 @@ class LeadData(ModelData):
         acs_filled['census_tract_id'] = acs['census_tract_id']
 
         spacetime = spacetime.merge(acs_filled, on=['census_tract_id', 'join_year'], how='left', copy=False)
-        spacetime.set_index(['complex_id', 'join_year'], inplace=True)
-        spacetime.drop(['census_tract_id'], axis=1, inplace=True)
+        spacetime.set_index(['address_id', 'join_year'], inplace=True)
+        spacetime.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id'], axis=1, inplace=True)
         spacetime.fillna(0, inplace=True)
 
         if spacetime_normalize_method is not None:
             spacetime = spacetime.groupby(level='join_year').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
-        df = df.merge(spacetime, left_on=['complex_id', 'join_year'], right_index=True, how='left', copy=False )
+        df = df.merge(spacetime, left_on=['address_id', 'join_year'], right_index=True, how='left', copy=False )
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
         if not tract_history:
             exclude.update(['tract_inspections_.*', 'tract_tests_.*', 'acs_5yr_.*'])
         
-        # additional features
-        if census_tract_binarize:
-            exclude.remove('census_tract_id')
-            CATEGORY_CLASSES['census_tract_id'] = self.tables['tracts'].census_tract_id.values
-
-        if building_year_decade:
-            df['complex_building_year_decade'] = (df['complex_building_year'] // 10)
-            CATEGORY_CLASSES['complex_building_year_decade'] =  df['complex_building_year_decade'].dropna().unique()
-            #df['address_building_year_decade'] = (df['address_building_year'] // 10)
-            #CATEGORY_CLASSES['address_building_year_decade'] =  df['address_building_year_decade'].dropna().unique()
+        #if building_year_decade:
+            #df['complex_building_year_decade'] = (df['complex_building_year'] // 10)
+            #CATEGORY_CLASSES['complex_building_year_decade'] =  df['complex_building_year_decade'].dropna().unique()
 
         df.set_index('test_id', inplace=True)
         X,y = Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
