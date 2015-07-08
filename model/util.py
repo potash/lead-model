@@ -10,7 +10,7 @@ def create_engine(**kwargs):
     return sqlalchemy.create_engine('postgresql://{user}:{pwd}@{host}:5432/{db}'.format(
             host=os.environ['PGHOST'], db=os.environ['PGDATABASE'], user=os.environ['PGUSER'], pwd=os.environ['PGPASSWORD']))
 
-def execute_sql(engine, sql):
+def execute_sql(sql, engine):
     conn = engine.connect()
     trans = conn.begin()
     conn.execute(sql)
