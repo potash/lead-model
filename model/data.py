@@ -113,6 +113,7 @@ class LeadData(ModelData):
                 # these parameters have defaults that were established by testing
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 test_aggregations={},
+                building_aggregations={},
                 max_age = None,
                 min_age = None,
                 training='all', # all, preminmax
@@ -237,7 +238,8 @@ class LeadData(ModelData):
         
         all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
         left = df[ all_levels + ['join_year', 'aggregation_end']].drop_duplicates()
-        spacetime = get_aggregation('output.tests_aggregated', test_aggregations, end_dates, left, engine)
+        spacetime = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
+        space = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
         
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
@@ -253,7 +255,7 @@ class LeadData(ModelData):
         # use outer join for backfilling
         acs = left.merge(acs, how='outer', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
         acs_filled = acs.groupby('census_tract_id').transform(lambda d: d.sort('join_year').fillna(method='backfill'))
-        # left join and groupby preserved the left index but groupby dropped the tract
+        # left join and groupby preserved the left index but grupby dropped the tract
         # so put the tract back
         acs_filled['census_tract_id'] = acs['census_tract_id']
 
@@ -266,6 +268,10 @@ class LeadData(ModelData):
             spacetime = spacetime.groupby(level='aggregation_end').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
         df = df.merge(spacetime, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
+
+        space.set_index(['address_id', 'aggregation_end'], inplace=True)
+        space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id', 'join_year'], axis=1, inplace=True)
+        df = df.merge(space, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
@@ -381,28 +387,45 @@ class LeadData(ModelData):
     
 # left is an optional dataframe with index <level>, aggregaton_end
 # it is left-joined to ensure returned df has the specified rows
-def get_aggregation(table_name, level_deltas, end_dates, left, engine):
+def get_aggregation(table_name, level_deltas, engine, end_dates=None, left=None, prefix=None):
     for level in level_deltas:
-        for delta in level_deltas[level]:
-            t = get_aggregate(table_name, level, end_dates, delta, engine)
+        deltas = level_deltas[level] if type(level_deltas) is dict else [None]
+        for delta in deltas:
+            t = get_aggregate(table_name, level, engine, end_dates, delta)
             t.rename(columns={'aggregation_id':level}, inplace=True)
-            t.drop(['aggregation_delta', 'aggregation_level'],inplace=True,axis=1)
-            t.set_index([level,'aggregation_end'], inplace=True)
+            t.drop(['aggregation_level'],inplace=True,axis=1)
+            if delta is not None:
+                t.drop(['aggregation_delta'],inplace=True,axis=1)
+
+            index = [level, 'aggregation_end'] if delta is not None else level
+            t.set_index(index, inplace=True)
             
-            prefix = str(delta) + 'y' if delta != -1 else 'all'
-            util.prefix_columns(t, level[:-3] + '_tests_' + prefix + '_')
+            column_prefix = level[:-3] + '_'
+            if prefix is not None:
+                column_prefix += prefix + '_'
+            if delta is not None:
+                delta_prefix = str(delta) + 'y' if delta != -1 else 'all'
+                column_prefix += delta_prefix + '_'
+            
+            util.prefix_columns(t, column_prefix)
+
             t.reset_index(inplace=True) # should add exclude arg to prefix_columns
-            left = left.merge(t, on=[level, 'aggregation_end'], how='left', copy=False)
+            if left is None:
+                left = t
+            else:
+                left = left.merge(t, on=index, how='left', copy=False)
 
     left.fillna(0, inplace=True)
     return left
 
-def get_aggregate(table_name, level, end_dates, delta, engine):
-    end_dates='(' + str.join(',',map(lambda d: "'" + str(d) + "'", end_dates)) + ')'
+def get_aggregate(table_name, level, engine, end_dates=None, delta=None):
     sql = """
     select * from {table_name} where aggregation_level='{level}' 
-    and aggregation_end in {end_dates} and aggregation_delta = {delta}
     """.format(table_name=table_name, level=level, end_dates=end_dates, delta=delta)
+
+    if end_dates is not None:
+        end_dates='(' + str.join(',',map(lambda d: "'" + str(d) + "'", end_dates)) + ')'
+        sql += ' and aggregation_end in {end_dates} and aggregation_delta = {delta}'.format(end_dates=end_dates, delta=delta)
 
     t = pd.read_sql(sql, engine)
     return t
