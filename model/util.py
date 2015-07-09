@@ -122,7 +122,7 @@ import pandas.io.sql
 class PgSQLDatabase(pandas.io.sql.SQLDatabase):
     # FIXME Schema is pulled from Meta object, shouldn't actually be part of signature!
     def to_sql(self, frame, name, if_exists='fail', index=True,
-               index_label=None, schema=None, chunksize=None, dtype=None, pk=None):
+               index_label=None, schema=None, chunksize=None, dtype=None, pk=None, prefixes=None):
         """
         Write records stored in a DataFrame to a SQL database.
 
@@ -153,30 +153,27 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
             be a SQLAlchemy type.
         pk: name of column(s) to set as primary keys
         """
-        #if dtype is not None:
-        #    from sqlalchemy.types import TypeEngine
-#
-#           for col, my_type in dtype.items():
-#                if not issubclass(my_type, TypeEngine):
-#                    raise ValueError('The type of %s is not a SQLAlchemy '
-#                                     'type ' % col)
-
         table = pandas.io.sql.SQLTable(name, self, frame=frame, index=index,
                                        if_exists=if_exists, index_label=index_label,
                                        schema=schema, dtype=dtype)
         existed = table.exists()
         table.create()
+
+        table_name=name
+        if schema is not None:
+            table_name = schema + '.' + table_name
+
         if pk is not None and not existed:
             if isinstance(pk, str):
                 pks = pk
             else:
                 pks = ", ".join(pk)
-            sql = "ALTER TABLE {schema_name}.{table_name} ADD PRIMARY KEY ({pks})".format(schema_name=schema, table_name=name, pks=pks)
+            sql = "ALTER TABLE table_name} ADD PRIMARY KEY ({pks})".format(table_name=table_name, pks=pks)
             self.execute(sql)
 
 
         from subprocess import Popen, PIPE, STDOUT
-        sql = "COPY {schema_name}.{table_name} ({columns}) FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(schema_name=schema, table_name=name, columns= str.join(',', frame.columns))
+        sql = "COPY {table_name} ({columns}) FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(table_name=table_name, columns= str.join(',', frame.columns))
         p = Popen(['psql', '-c', sql], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
         psql_out = p.communicate(input=frame.to_csv(index=index))[0]
         print psql_out.decode(),

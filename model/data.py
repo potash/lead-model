@@ -419,15 +419,14 @@ def get_aggregation(table_name, level_deltas, engine, end_dates=None, left=None,
     return left
 
 def get_aggregate(table_name, level, engine, end_dates=None, delta=None):
-    sql = """
-    select * from {table_name} where aggregation_level='{level}' 
-    """.format(table_name=table_name, level=level, end_dates=end_dates, delta=delta)
+    sql = "select * from {table_name} where aggregation_level='{level}' ".format(table_name=table_name, level=level, end_dates=end_dates, delta=delta)
 
     if end_dates is not None:
-        end_dates='(' + str.join(',',map(lambda d: "'" + str(d) + "'", end_dates)) + ')'
-        sql += ' and aggregation_end in {end_dates} and aggregation_delta = {delta}'.format(end_dates=end_dates, delta=delta)
+        sqls = map(lambda d: sql + " and aggregation_end = '{end_date}' and aggregation_delta = {delta}".format(end_date=str(d), delta=delta), end_dates)
+    else:
+        sqls = [sql]
 
-    t = pd.read_sql(sql, engine)
+    t = pd.concat(pd.read_sql(sql, engine) for sql in sqls, copy=False)
     return t
 
 # generate year, month, day features from specified date features
