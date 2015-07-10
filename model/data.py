@@ -242,7 +242,7 @@ class LeadData(ModelData):
         all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
         left = df[ all_levels + ['join_year', 'aggregation_end']].drop_duplicates()
         spacetime = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
-        space = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
+        space = get_building_aggregation(building_aggregations, engine, left=left)
         
         inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
         prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
@@ -343,6 +343,15 @@ class LeadData(ModelData):
             
         return r
     
+def get_building_aggregation(building_aggregations, engine, left=None):
+    df = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
+    
+    not_null_columns = [c for c in df.columns if c.endswith('_not_null')]
+    print not_null_columns
+    df[not_null_columns].fillna(False, inplace=True)
+
+    return df
+
 # left is an optional dataframe with index <level>, aggregaton_end
 # it is left-joined to ensure returned df has the specified rows
 def get_aggregation(table_name, level_deltas, engine, end_dates=None, left=None, prefix=None):
@@ -373,7 +382,6 @@ def get_aggregation(table_name, level_deltas, engine, end_dates=None, left=None,
             else:
                 left = left.merge(t, on=index, how='left', copy=False)
 
-    left.fillna(0, inplace=True)
     return left
 
 def get_aggregate(table_name, level, engine, end_dates=None, delta=None):
