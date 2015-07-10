@@ -131,19 +131,26 @@ class LeadData(ModelData):
                                    70798,  # Union Health Service Inc. 
                                    447803]): # Former Maryville Hospital
 
+
+        # get tests relevant to date
+        today = datetime.date(year, 1, 1)
+
+        df = pd.concat((tests_aggregated.censor_tests(self.tests, today),
+                        self.tests[self.tests.test_date >= today]), copy=False)
+
+        date_from = datetime.date(year - train_years, 1, 1)
+        date_mask = (df.test_date >= date_from)
+        df = df[date_mask]
+        df = df[df.kid_date_of_birth.notnull()]
+
         exclude = self.EXCLUDE.union(exclude)
-        self.tests = self.tests[self.tests.kid_date_of_birth.notnull()]
-        df = self.tests.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
-#        df = df.merge(self.tables['complexes'], on='complex_id', how='left', copy=False)
-#        df['complex_assessor_null'].fillna(True, inplace=True)
-#        df['complex_building_null'].fillna(True, inplace=True)
+        df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
 
         if min_age is not None:
             df = df[(df.test_kid_age_days >=  min_age)]
         if max_age is not None: 
             df = df[(df.test_kid_age_days <= max_age)]
 
-        df.set_index('test_id', inplace=True)
         if ward_id is not None:
             df = df[df.ward_id==ward_id]
             
@@ -153,14 +160,9 @@ class LeadData(ModelData):
         if exclude_addresses is not None:
             df = df[~df.address_id.isin(exclude_addresses)]
 
-        # get tests relevant to date
-        today = datetime.date(year, 1, 1)
-
-        date_from = datetime.date(year - train_years, 1, 1)
-        date_mask = (df.test_date >= date_from)
-        df = df[date_mask]
 
         # cross validation
+        df.set_index('test_id', inplace=True)
         train = (df.test_date < today) 
         if training == 'preminmax':
             train = train & (df.test_date <= df.kid_minmax_date)
@@ -192,7 +194,8 @@ class LeadData(ModelData):
         df = df[train_or_test]
 
         # set test details for (future) test set to nan to eliminate leakage!
-        # can't know about minmax bll,date for future poisonings!
+        # can't know about minmax bll,date for future poisoningsa!
+        # since test_id is currently the index it does not get cleared!
         test_columns = [c for c in df.columns if c.startswith('test_')]
         df.loc[ test, test_columns ] = np.nan
 
@@ -340,51 +343,6 @@ class LeadData(ModelData):
             
         return r
     
-    def aggregate_tests(self, levels, period=1, years=None, df=None, multiaddress=False):
-        ebll_test_count = lambda t: (t.test_bll > 5).astype(int)
-        ebll_kid_ids = lambda t: t.kid_id.where(t.test_bll > 5)
-
-        TEST_COLUMNS = {
-            'count': {'numerator': 1},
-            'tested': {'numerator': 1, 'func': np.max},
-            'poisoned': {'numerator': lambda t: (t.test_bll > 5).astype(int), 'func':np.max},
-            
-            'ebll_count': {'numerator': ebll_test_count},
-            'ebll_prop': {'numerator': ebll_test_count, 'denominator': 1},
-
-            'bll_avg': {'numerator': 'test_bll', 'func':np.mean}, 
-            'bll_median': {'numerator': 'test_bll', 'func':np.median}, 
-            'bll_max': {'numerator': 'test_bll', 'func':np.max}, 
-            'bll_min': {'numerator': 'test_bll', 'func':np.min}, 
-            'bll_std': {'numerator': 'test_bll', 'func':np.std}, 
-
-             # todo calculate max and minmax bll correctly and characterize distribution of those
-
-            'kid_count': {'numerator': 'kid_id', 'func':count_unique},
-
-             # count number of kids with
-            'kid_ebll_here_count': {'numerator': ebll_kid_ids, 'func': count_unique }, # ebll here
-            'kid_ebll_first_count': {'numerator': lambda t: (t.test_minmax & (t.test_bll > 5))}, # first ebll here
-        }
-        if multiaddress:
-            TEST_COLUMNS['kid_ebll_ever_count'] = {'numerator': lambda t: t.kid_id.where( (t.kid_minmax_bll > 5) & ( t.kid_minmax_date <= t.ag_date)), 'func': count_unique} # ever ebll
-            TEST_COLUMNS['kid_ebll_future_count'] = {'numerator': lambda t: t.kid_id.where( (t.kid_minmax_bll > 5) & (t.kid_minmax_date >= t.test_date)  & (t.kid_minmax_date <= t.ag_date)), 'func': count_unique} # future ebll
-        if df is None: df = self.tests
-        
-        df['ag_year'] = df['test_date'].apply(lambda d: d.year)
-        df = join_years(df, years, period, column='ag_year')
-        df['ag_date'] = df['ag_year'].apply(lambda y: datetime.date(y,12,31))
-        
-        ag = [aggregate(df, TEST_COLUMNS, index=[level, 'ag_year']) for level in levels]
-        for a in ag:
-            a['kid_ebll_here_prop'] = a['kid_ebll_here_count']/a['kid_count']
-            a['kid_ebll_first_prop'] = a['kid_ebll_first_count']/a['kid_count']
-            if multiaddress:
-                a['kid_ebll_ever_prop'] = a['kid_ebll_ever_count']/a['kid_count']
-                a['kid_ebll_future_prop'] = a['kid_ebll_future_count']/a['kid_count']
-            a.index.rename('year', level='ag_year', inplace=True)
-        return ag
-    
 # left is an optional dataframe with index <level>, aggregaton_end
 # it is left-joined to ensure returned df has the specified rows
 def get_aggregation(table_name, level_deltas, engine, end_dates=None, left=None, prefix=None):
@@ -426,7 +384,7 @@ def get_aggregate(table_name, level, engine, end_dates=None, delta=None):
     else:
         sqls = [sql]
 
-    t = pd.concat(pd.read_sql(sql, engine) for sql in sqls, copy=False)
+    t = pd.concat((pd.read_sql(sql, engine) for sql in sqls), copy=False)
     return t
 
 # generate year, month, day features from specified date features
