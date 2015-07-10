@@ -347,7 +347,6 @@ def get_building_aggregation(building_aggregations, engine, left=None):
     df = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
     
     not_null_columns = [c for c in df.columns if c.endswith('_not_null')]
-    print not_null_columns
     df[not_null_columns].fillna(False, inplace=True)
 
     return df
