@@ -168,7 +168,7 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
                 pks = pk
             else:
                 pks = ", ".join(pk)
-            sql = "ALTER TABLE table_name} ADD PRIMARY KEY ({pks})".format(table_name=table_name, pks=pks)
+            sql = "ALTER TABLE {table_name} ADD PRIMARY KEY ({pks})".format(table_name=table_name, pks=pks)
             self.execute(sql)
 
 

@@ -142,6 +142,7 @@ class LeadData(ModelData):
         date_mask = (df.test_date >= date_from)
         df = df[date_mask]
         df = df[df.kid_date_of_birth.notnull()]
+#        df.kid_date_of_birth.fillna( (df[test_date] < today).kid_date_of_birth.mean() )
 
         exclude = self.EXCLUDE.union(exclude)
         df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
@@ -405,13 +406,13 @@ def expand_dates(df, columns=[]):
     return df2
 
 # binarize specified categoricals using specified category class dictionary
-def binarize(df, category_classes):
+def binarize(df, category_classes, all_classes=False):
     #for category,classes in category_classes.iteritems():
     columns = set(category_classes.keys()).intersection(df.columns)
     
     for category in columns:
         classes = category_classes[category]
-        for i in range(len(classes)-1):
+        for i in range(len(classes)-1 if not all_classes else len(classes)):
             df[category + '_' + str(classes[i]).replace( ' ', '_')] = (df[category] == classes[i])
         #binarized = pd.get_dummies(df[category], prefix=df[category])#.drop(classes[len(classes)-1], axis=1, inplace=True)
         #df = df.merge(binarized, left_index=True, right_index=True, copy=False)
