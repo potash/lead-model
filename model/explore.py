@@ -96,6 +96,10 @@ def get_series(df, columns, value, indices=None, index_names=None,index='year', 
         series.columns=index_names + ['baseline']
     return series
 
+# for a given example idx get the series X*\beta
+def get_example_series(run, idx):
+    return pd.DataFrame({'c':(run['data'].X.ix[[idx]].values[0]*run['estimator'].coef_)[0], 'name':run['columns']}).sort('c')
+
 # http://sensitivecities.com/so-youd-like-to-make-a-map-using-python-EN.html
 # Convenience functions for working with colour ramps and bars
 def colorbar_index(ncolors, cmap, labels=None, **kwargs):

@@ -55,7 +55,7 @@ print '    on ' + str(test.sum()) + ' examples'
 y_score = pd.Series(model.y_score(estimator, lead_data.X[test]), index=lead_data.X[test].index)
 
 counts = [.01,.02,.05,.1]
-precisions = model.precision(lead_data.y[test], y_score, [.01,.02,.05,.1,.2])
+precisions = model.precision(lead_data.y[test], y_score, [.01,.02,.05,.1])
 
 print '    baseline: ' + str(model.baseline(lead_data.y[test]))
 print '    precision: ' + str(', '.join('%s=%.2f' % t for t in zip(counts, precisions)))

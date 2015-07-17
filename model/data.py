@@ -117,9 +117,10 @@ class LeadData(ModelData):
                 max_age = None,
                 min_age = None,
                 training='all', # all, preminmax
-                training_max_age=None,
                 testing='all',  # all, never_tested
-                testing_max_age=None,
+                training_max_test_age=None,
+                testing_max_test_age=None,
+                testing_max_today_age=None,
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=None,
@@ -127,6 +128,7 @@ class LeadData(ModelData):
                 ward_id = None, # filter to this particular ward
                 building_year_decade=True,
                 test_date_season=True,
+                cluster_columns={}, # dict of ('column_name': n_clusters) pairs
                 exclude_addresses=[296888, # Aunt Martha's Health Center
                                    70798,  # Union Health Service Inc. 
                                    447803]): # Former Maryville Hospital
@@ -167,8 +169,11 @@ class LeadData(ModelData):
         train = (df.test_date < today) 
         if training == 'preminmax':
             train = train & (df.test_date <= df.kid_minmax_date)
-        if training_max_age is not None:
-            train = train & (df.test_kid_age_days <= training_max_age)
+        elif training == 'max':
+            train = train & ( (df.test_bll > 5) == (df.kid_max_bll > 5) )
+
+        if training_max_test_age is not None:
+            train = train & (df.test_kid_age_days <= training_max_test_age)
       
         if testing == 'all':
             test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
@@ -177,8 +182,10 @@ class LeadData(ModelData):
         else:
             print 'Warning: testing option \'{}\' not supported'.format(testing)
 
-        if testing_max_age is not None:
-            test = test & (df.test_kid_age_days <= testing_max_age)
+        if testing_max_test_age is not None:
+            test = test & (df.test_kid_age_days <= testing_max_test_age)
+        if testing_max_today_age is not None:
+            test = test & (df.kid_date_of_birth.apply(lambda d: (today - d).days <= testing_max_today_age))
 
         # want to get a single test for each future kid
         # if they get poisoned, take their first poisoned test
@@ -286,7 +293,12 @@ class LeadData(ModelData):
             #df['complex_building_year_decade'] = (df['complex_building_year'] // 10)
             #CATEGORY_CLASSES['complex_building_year_decade'] =  df['complex_building_year_decade'].dropna().unique()
 
+
         df.set_index('test_id', inplace=True)
+
+        for column, n_clusters in cluster_columns.iteritems():
+            binarize_clusters(df, column, n_clusters, train=train)
+
         X,y = Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train)
  
         self.X = X
@@ -414,10 +426,25 @@ def binarize(df, category_classes, all_classes=False):
         classes = category_classes[category]
         for i in range(len(classes)-1 if not all_classes else len(classes)):
             df[category + '_' + str(classes[i]).replace( ' ', '_')] = (df[category] == classes[i])
-        #binarized = pd.get_dummies(df[category], prefix=df[category])#.drop(classes[len(classes)-1], axis=1, inplace=True)
-        #df = df.merge(binarized, left_index=True, right_index=True, copy=False)
         
     df.drop(columns, axis=1, inplace=True)                                      
+    return df
+
+def binarize_clusters(df, column, n_clusters, train=None):
+    series = df[column]
+    series = series.dropna()
+    
+    from sklearn.cluster import KMeans
+    kmeans = KMeans(n_clusters)
+    
+    series = pd.DataFrame(series)
+    kmeans.fit(series[train] if train is not None else series)
+    
+    clusters = kmeans.cluster_centers_[:,0].astype(int)
+    df[column + '_cluster'] = pd.Series(kmeans.predict(series), index=series.index).apply(lambda d: clusters[d])
+    
+    binarize(df, {column + '_cluster': clusters}, all_classes=True) # use all_classes to handle nulls
+    
     return df
 
 # returns endogenous and exogenous variables
