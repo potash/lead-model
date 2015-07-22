@@ -13,4 +13,4 @@ fi
 # delete old model runs
 rm -r $2/*/ 2> /dev/null
 
-./get_params.py $1 $2 $2/params.yaml | parallel --delay 5 --joblog $2/log ./run_model.py
+./get_params.py $1 $2 $2/params.yaml | parallel -j1 --delay 5 --joblog $2/log ./run_model.py

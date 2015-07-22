@@ -54,11 +54,11 @@ print '    on ' + str(test.sum()) + ' examples'
 
 y_score = pd.Series(model.y_score(estimator, lead_data.X[test]), index=lead_data.X[test].index)
 
-counts = [.01,.02,.05,.1]
-precisions = model.precision(lead_data.y[test], y_score, [.01,.02,.05,.1])
+p = [.005,.01,.02,.05]
+precisions = model.precision(lead_data.y[test], y_score, p)
 
 print '    baseline: ' + str(model.baseline(lead_data.y[test]))
-print '    precision: ' + str(', '.join('%s=%.2f' % t for t in zip(counts, precisions)))
+print '    precision: ' + str(', '.join('%s=%.2f' % t for t in zip(p, precisions)))
 print '    auc: ' + str(model.auc(lead_data.y[test], y_score))
 
 if 'output' in params:
@@ -68,7 +68,7 @@ if 'output' in params:
         
     with open( os.path.join(params['output'], 'params.yaml'), 'w') as outfile:
         yaml.dump(params_orig, outfile)
-    joblib.dump(estimator, os.path.join(params['output'], 'estimator.pkl'))
+    #joblib.dump(estimator, os.path.join(params['output'], 'estimator.pkl'))
     y = pd.DataFrame({'score':y_score, 'true': lead_data.y[test]}, index=y_score.index)
     y.to_csv(os.path.join(params['output'], 'y.csv'), index=True)
     pd.DataFrame(columns=lead_data.X.columns).to_csv(os.path.join(params['output'], 'columns.csv'),index=False)

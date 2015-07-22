@@ -340,10 +340,10 @@ class LeadData(ModelData):
         INSPECTION_COLUMNS = {
             'count': {'numerator':1},
             'inspected': {'numerator':1, 'func': np.max},
-            'hazard_int_count': {'numerator':'hazard_int'},
-            'hazard_ext_count': {'numerator':'hazard_ext'},
+            'hazard_int_count': {'numerator':lambda i: i['hazard_int'] & ~i['comply']},
+            'hazard_ext_count': {'numerator':lambda i: i['hazard_ext']},
             'hazard_int_prop': {'numerator':'hazard_int', 'denominator':1},
-            'hazard_ext_ratio': {'numerator':'hazard_ext', 'denominator':1},
+            'hazard_ext_prop': {'numerator':'hazard_ext', 'denominator':1},
             'compliance_count': {'numerator': 'comply'},
             'compliance_prop': {'numerator': 'comply', 'denominator': 1},
             'avg_init_to_comply_days': {'numerator': 'days_to_compliance', 'func':'mean'},
