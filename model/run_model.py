@@ -68,7 +68,7 @@ if 'output' in params:
         
     with open( os.path.join(params['output'], 'params.yaml'), 'w') as outfile:
         yaml.dump(params_orig, outfile)
-    #joblib.dump(estimator, os.path.join(params['output'], 'estimator.pkl'))
+    joblib.dump(estimator, os.path.join(params['output'], 'estimator.pkl'))
     y = pd.DataFrame({'score':y_score, 'true': lead_data.y[test]}, index=y_score.index)
     y.to_csv(os.path.join(params['output'], 'y.csv'), index=True)
     pd.DataFrame(columns=lead_data.X.columns).to_csv(os.path.join(params['output'], 'columns.csv'),index=False)
