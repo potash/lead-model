@@ -2,6 +2,7 @@ import sqlalchemy
 import os
 import numpy as np
 import datetime
+import sys
 import pandas as pd
 from sklearn import preprocessing
 from scipy import stats
@@ -122,7 +123,7 @@ import pandas.io.sql
 class PgSQLDatabase(pandas.io.sql.SQLDatabase):
     # FIXME Schema is pulled from Meta object, shouldn't actually be part of signature!
     def to_sql(self, frame, name, if_exists='fail', index=True,
-               index_label=None, schema=None, chunksize=None, dtype=None, pk=None, prefixes=None):
+               index_label=None, schema=None, chunksize=None, dtype=None, pk=None, prefixes=None, raise_on_error=True):
         """
         Write records stored in a DataFrame to a SQL database.
 
@@ -173,9 +174,17 @@ class PgSQLDatabase(pandas.io.sql.SQLDatabase):
 
 
         from subprocess import Popen, PIPE, STDOUT
-        sql = "COPY {table_name} ({columns}) FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(table_name=table_name, columns= str.join(',', frame.columns))
+
+        columns = frame.index.names + list(frame.columns) if index else frame.columns
+        columns = str.join(",", map(lambda c: '"' + c + '"', columns))
+
+        sql = "COPY {table_name} ({columns}) FROM STDIN WITH (FORMAT CSV, HEADER TRUE)".format(table_name=table_name, columns=columns)
         p = Popen(['psql', '-c', sql], stdout=PIPE, stdin=PIPE, stderr=STDOUT)
         psql_out = p.communicate(input=frame.to_csv(index=index))[0]
         print psql_out.decode(),
-        return p.wait()
-            
+        
+        r = p.wait()
+        if raise_on_error and (r > 0):
+            sys.exit(r)
+
+        return r
