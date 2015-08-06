@@ -104,6 +104,7 @@ class LeadData(ModelData):
                 # these parameters have defaults that were established by testing
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 test_aggregations={},
+                inspection_aggregations={},
                 building_aggregations={},
                 max_age = None,
                 min_age = None,
@@ -112,6 +113,7 @@ class LeadData(ModelData):
                 training_max_test_age=None,
                 testing_max_test_age=None,
                 testing_max_today_age=None,
+                testing_min_today_age=0,
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=None,
@@ -166,8 +168,9 @@ class LeadData(ModelData):
         if training_max_test_age is not None:
             train = train & (df.test_kid_age_days <= training_max_test_age)
       
+        test = (df.test_date >= today) & (df.kid_date_of_birth.apply(lambda d: (today - d).days > testing_min_today_age))
         if testing == 'all':
-            test = (df.test_date >= today) & (df.kid_date_of_birth < today) 
+            pass
         elif testing == 'untested':
             test = (df.test_date >= today) & (df.kid_date_of_birth < today) & (df.min_sample_date >= today)
         else:
@@ -240,16 +243,13 @@ class LeadData(ModelData):
         
         all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
         left = df[ all_levels + ['join_year', 'aggregation_end']].drop_duplicates()
-        spacetime = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
+
+        tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
+        inspections_agg = get_aggregation('output.tests_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=left, prefix='inspections')
+        
+        spacetime = tests_agg.merge(inspections_agg, on=all_levels + ['join_year', 'aggregation_end'], copy=False)
         space = get_building_aggregation(building_aggregations, engine, left=left)
         
-        inspections_tract_ag,inspections_address_ag = self.aggregate_inspections(years, levels=['census_tract_id', 'complex_id'])
-        prefix_columns(inspections_tract_ag, 'tract_inspections_all_')
-        prefix_columns(inspections_address_ag, 'address_inspections_all_')
-        
-        spacetime = spacetime.merge(inspections_tract_ag, how='left', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
-        spacetime = spacetime.merge(inspections_address_ag, how='left', left_on=['complex_id', 'join_year'], right_index=True, copy=False)
-
         # acs data
         left = df[['census_tract_id', 'join_year']].drop_duplicates()
         acs = self.tables['acs'].set_index(['census_tract_id', 'year'])
@@ -280,11 +280,6 @@ class LeadData(ModelData):
         if not tract_history:
             exclude.update(['tract_inspections_.*', 'tract_tests_.*', 'acs_5yr_.*'])
         
-        #if building_year_decade:
-            #df['complex_building_year_decade'] = (df['complex_building_year'] // 10)
-            #CATEGORY_CLASSES['complex_building_year_decade'] =  df['complex_building_year_decade'].dropna().unique()
-
-
         df.set_index('test_id', inplace=True)
 
         for column, n_clusters in cluster_columns.iteritems():
@@ -306,46 +301,6 @@ class LeadData(ModelData):
             F = len(y_train) - T
             p = (undersample)*T/((1-undersample)*F)
             self.cv = (undersample_cv(df, self.cv[0], p), self.cv[1])
-
-    def aggregate_inspections(self, years, levels):
-        inspections = self.tables['inspections']
-        #res_columns = {'res_count': {'numerator': 'residential'}}
-        #for index in levels:
-        #    count = aggregate(self.tables['addresses'], res_columns, index=index)
-        #    count.columns = [index + '_res_count']
-        #    inspections = inspections.merge(count.reset_index(), how='left', on=index)
-        
-        for column in ['hazard_int','hazard_ext']:
-            inspections[column].fillna(True, inplace=True)
-            inspections[column] = inspections[column].astype(int)
-        
-        inspections['year'] = inspections['init_date'].fillna(inspections['comply_date']).apply(lambda d:d.year)
-        inspections = join_years(inspections, years)
-        
-        comply_not_null = inspections[inspections.comply_date.notnull()]
-        inspections['comply'] = (comply_not_null['comply_date'].apply(lambda d: d.year) < comply_not_null.year)
-        inspections['comply'] = inspections['comply'].fillna(False).astype('int')
-        dt = (inspections['comply_date'] - inspections['init_date']).where(inspections['comply'])
-        inspections['days_to_compliance'] = dt[dt.notnull()] / np.timedelta64(1, 'D')
-        
-        INSPECTION_COLUMNS = {
-            'count': {'numerator':1},
-            'inspected': {'numerator':1, 'func': np.max},
-            'hazard_int_count': {'numerator':lambda i: i['hazard_int'] & ~i['comply']},
-            'hazard_ext_count': {'numerator':lambda i: i['hazard_ext']},
-            'hazard_int_prop': {'numerator':'hazard_int', 'denominator':1},
-            'hazard_ext_prop': {'numerator':'hazard_ext', 'denominator':1},
-            'compliance_count': {'numerator': 'comply'},
-            'compliance_prop': {'numerator': 'comply', 'denominator': 1},
-            'avg_init_to_comply_days': {'numerator': 'days_to_compliance', 'func':'mean'},
-        }
-        
-        r = []
-        for level in levels:
-            #INSPECTION_COLUMNS['pct_inspected'] = {'numerator': 1, 'denominator': level + '_res_count', 'denominator_func': np.max}
-            r.append(aggregate(inspections, INSPECTION_COLUMNS, index=[level,'year']))
-            
-        return r
     
 def get_building_aggregation(building_aggregations, engine, left=None):
     df = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
@@ -354,6 +309,3 @@ def get_building_aggregation(building_aggregations, engine, left=None):
     df.loc[:,not_null_columns].fillna(False, inplace=True)
 
     return df
-
-# left is an optional dataframe with index <level>, aggregaton_end
-# it is left-joined to ensure returned df has the specified rows
