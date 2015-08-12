@@ -13,7 +13,7 @@ from lead.output import tests_aggregated,buildings_aggregated
 
 from drain import util
 from drain.util import prefix_columns, join_years
-from drain.data import get_aggregation, ModelData
+from drain.data import get_aggregation, ModelData, undersample_to
 from drain import data
 
 import warnings
@@ -158,7 +158,6 @@ class LeadData(ModelData):
         if exclude_addresses is not None:
             df = df[~df.address_id.isin(exclude_addresses)]
 
-
         # cross validation
         df.set_index('test_id', inplace=True)
         train = (df.test_date < today) 
@@ -234,7 +233,7 @@ class LeadData(ModelData):
             #TODO update this for complexes
             exclude.update(['address_building_.*', 'address_assessor_.*', 'address_lat', 'address_lng'])
         if not ward:
-            exclude.add('ward_id')
+            CATEGORY_CLASSES.pop('ward_id')
         if not community_area:
             exclude.add('community_area_id')
         
@@ -302,11 +301,7 @@ class LeadData(ModelData):
         if undersample is not None:
             # undersample is the desired *proportion* of the majority class
             # calculate p, the desired proportion by which to undersample
-            y_train = self.y[self.cv[0]]
-            T = y_train.sum()
-            F = len(y_train) - T
-            p = (undersample)*T/((1-undersample)*F)
-            self.cv = (undersample_cv(df, self.cv[0], p), self.cv[1])
+            self.cv[0] = undersample_to(self.y, self.cv[0], undersample)
     
 def get_building_aggregation(building_aggregations, engine, left=None):
     df = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
