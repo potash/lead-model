@@ -13,7 +13,7 @@ from lead.output import tests_aggregated,buildings_aggregated
 
 from drain import util
 from drain.util import prefix_columns, join_years
-from drain.data import get_aggregation
+from drain.data import get_aggregation, ModelData
 from drain import data
 
 import warnings
