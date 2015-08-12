@@ -119,7 +119,7 @@ class LeadData(ModelData):
                 exclude={}, 
                 undersample=None,
                 impute=True, normalize=True, drop_collinear=False,
-                impute_strategy='mean', normalize=True, drop_collinear=False,
+                impute_strategy='mean', 
                 ward_id = None, # filter to this particular ward
                 building_year_decade=True,
                 test_date_season=True,
