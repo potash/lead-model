@@ -13,7 +13,8 @@ from lead.output import tests_aggregated,buildings_aggregated
 
 from drain import util
 from drain.util import prefix_columns, join_years
-from drain.data import *
+from drain.data import get_aggregation
+from drain import data
 
 import warnings
 
@@ -118,6 +119,7 @@ class LeadData(ModelData):
                 exclude={}, 
                 undersample=None,
                 impute=True, normalize=True, drop_collinear=False,
+                impute_strategy='mean', normalize=True, drop_collinear=False,
                 ward_id = None, # filter to this particular ward
                 building_year_decade=True,
                 test_date_season=True,
@@ -245,7 +247,7 @@ class LeadData(ModelData):
         left = df[ all_levels + ['join_year', 'aggregation_end']].drop_duplicates()
 
         tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
-        inspections_agg = get_aggregation('output.tests_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=left, prefix='inspections')
+        inspections_agg = get_aggregation('output.inspections_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=left, prefix='inspections')
         
         spacetime = tests_agg.merge(inspections_agg, on=all_levels + ['join_year', 'aggregation_end'], copy=False)
         space = get_building_aggregation(building_aggregations, engine, left=left)
@@ -283,9 +285,13 @@ class LeadData(ModelData):
         df.set_index('test_id', inplace=True)
 
         for column, n_clusters in cluster_columns.iteritems():
-            binarize_clusters(df, column, n_clusters, train=train)
+            data.binarize_clusters(df, column, n_clusters, train=train)
 
-        X,y = Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, impute=impute, normalize=normalize, train=train, category_classes=CATEGORY_CLASSES)
+        X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, category_classes=CATEGORY_CLASSES)
+        if impute:
+            X = data.impute(X, train, impute_strategy)
+            if normalize:
+                X = data.normalize(X, train)
  
         self.X = X
         self.y = y > bll_threshold
