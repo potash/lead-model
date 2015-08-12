@@ -118,6 +118,7 @@ class LeadData(ModelData):
                 community_area = False, # don't include community area binaries
                 exclude={}, 
                 undersample=None,
+                wic=True, # keep all wic tests
                 impute=True, normalize=True, drop_collinear=False,
                 impute_strategy='mean', 
                 ward_id = None, # filter to this particular ward
@@ -193,7 +194,7 @@ class LeadData(ModelData):
         train_or_test = train | test
         train = train.loc[train_or_test]
         test = test.loc[train_or_test]
-        self.cv = (train,test)
+        self.cv = [train,test]
         df = df[train_or_test]
 
         # set test details for (future) test set to nan to eliminate leakage!
@@ -281,10 +282,15 @@ class LeadData(ModelData):
         if not tract_history:
             exclude.update(['tract_inspections_.*', 'tract_tests_.*', 'acs_5yr_.*'])
         
+        if wic:
+            wic_kids = pd.read_sql('select * from aux.wic_kids', engine)
+            df['wic']  = df.kid_id.isin(wic_kids.kid_id)
+
         df.set_index('test_id', inplace=True)
 
         for column, n_clusters in cluster_columns.iteritems():
             data.binarize_clusters(df, column, n_clusters, train=train)
+
 
         X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, category_classes=CATEGORY_CLASSES)
         if impute:
@@ -297,10 +303,9 @@ class LeadData(ModelData):
 
         if drop_collinear:
             util.drop_collinear(X)
-        
+
         if undersample is not None:
-            # undersample is the desired *proportion* of the majority class
-            # calculate p, the desired proportion by which to undersample
+            train = self.cv[0]
             self.cv[0] = undersample_to(self.y, self.cv[0], undersample)
     
 def get_building_aggregation(building_aggregations, engine, left=None):
