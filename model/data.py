@@ -288,7 +288,7 @@ class LeadData(ModelData):
         if wic:
             wic_df = pd.read_sql('select * from output.wic', engine)
             prefix_columns(wic_df, "wic_")
-            df = df.merge(wic_df[['wid_id','wic_kid_id']], left_on="kid_id", right_on="wic_kid_id", how="left", copy=False)
+            df = df.merge(wic_df[['wic_id','wic_kid_id']], left_on="kid_id", right_on="wic_kid_id", how="left", copy=False)
             df["wic"] = df['wic_id'].notnull()
             df.drop("wic_id", axis=1, inplace=True)
 
