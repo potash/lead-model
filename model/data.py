@@ -28,8 +28,11 @@ CATEGORY_CLASSES = {
     'tract_ethnicity': ['asian', 'black', 'white', 'latino'],
     'ward_ethnicity': ['black', 'white', 'latino'], # there are no majority asian wards
     'ward_id': range(1,51),
-    'community_area_id': range(1,78)
+    'community_area_id': range(1,78),
+    'wic_clinic' : [ 'GreaterLawn', 'FriendFamily', 'LowerWest', 'NearWest', 'WestTown', 'ChicagoFamily', 'ErieSuperior', 'HenryBooth', 'WestsideHP', 'Lakeview', 'Englewood', 'Uptown', 'Austin']
 }
+
+SPATIAL_LEVELS = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
 
 class LeadData(ModelData):
     # default exclusions set
@@ -40,7 +43,8 @@ class LeadData(ModelData):
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
         'test_date', 'kid_date_of_birth', #date 
         'join_year', 'aggregation_end',# used for join
-        'kid_birth_days_to_test',  'address_inspection_init_days_to_test' # variables that confuse the model?
+        #'kid_birth_days_to_test',  'address_inspection_init_days_to_test', # variables that confuse the model?
+        'wic_first_name', 'wic_last_name', 'wic_date_of_birth',
     }
 
     DATE_COLUMNS = {
@@ -142,7 +146,7 @@ class LeadData(ModelData):
         df = df[df.kid_date_of_birth.notnull()]
 #        df.kid_date_of_birth.fillna( (df[test_date] < today).kid_date_of_birth.mean() )
 
-        exclude = self.EXCLUDE.union(exclude)
+        exclude = self.EXCLUDE.union(SPATIAL_LEVELS).union(exclude)
         df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
 
         if min_age is not None:
@@ -243,13 +247,12 @@ class LeadData(ModelData):
         end_dates = df['aggregation_end'].unique()
         engine = util.create_engine()
         
-        all_levels = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
-        left = df[ all_levels + ['join_year', 'aggregation_end']].drop_duplicates()
+        left = df[ SPATIAL_LEVELS + ['join_year', 'aggregation_end']].drop_duplicates()
 
         tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
         inspections_agg = get_aggregation('output.inspections_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=left, prefix='inspections')
         
-        spacetime = tests_agg.merge(inspections_agg, on=all_levels + ['join_year', 'aggregation_end'], copy=False)
+        spacetime = tests_agg.merge(inspections_agg, on=SPATIAL_LEVELS + ['join_year', 'aggregation_end'], copy=False)
         space = get_building_aggregation(building_aggregations, engine, left=left)
         
         # acs data
@@ -281,10 +284,13 @@ class LeadData(ModelData):
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
         if not tract_history:
             exclude.update(['tract_inspections_.*', 'tract_tests_.*', 'acs_5yr_.*'])
-        
+
         if wic:
-            wic_kids = pd.read_sql('select * from aux.wic_kids', engine)
-            df['wic']  = df.kid_id.isin(wic_kids.kid_id)
+            wic_df = pd.read_sql('select * from output.wic', engine)
+            prefix_columns(wic_df, "wic_")
+            df = df.merge(wic_df[['wid_id','wic_kid_id']], left_on="kid_id", right_on="wic_kid_id", how="left", copy=False)
+            df["wic"] = df['wic_id'].notnull()
+            df.drop("wic_id", axis=1, inplace=True)
 
         df.set_index('test_id', inplace=True)
 
@@ -305,7 +311,6 @@ class LeadData(ModelData):
             util.drop_collinear(X)
 
         if undersample is not None:
-            train = self.cv[0]
             self.cv[0] = undersample_to(self.y, self.cv[0], undersample)
     
 def get_building_aggregation(building_aggregations, engine, left=None):
