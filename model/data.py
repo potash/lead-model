@@ -5,6 +5,7 @@ from scipy import stats
 import re
 import numpy as np
 import collections
+import re
 
 import random
 import datetime
@@ -322,5 +323,9 @@ def get_building_aggregation(building_aggregations, engine, left=None):
     
     not_null_columns = [c for c in df.columns if c.endswith('_not_null')]
     df.loc[:,not_null_columns].fillna(False, inplace=True)
+
+    condition_regex = re.compile('condition_.*_prop')
+    condition_prop_columns = [c for c in df.columns if condition_regex.search(c)]
+    df.loc[:,condition_prop_columns].fillna(0,inplace=True)
 
     return df
