@@ -125,6 +125,7 @@ class LeadData(ModelData):
                 wic=True, # keep all wic tests
                 impute=True, normalize=True, drop_collinear=False,
                 impute_strategy='mean', 
+                space_impute_group = None,
                 ward_id = None, # filter to this particular ward
                 building_year_decade=True,
                 test_date_season=True,
@@ -274,11 +275,15 @@ class LeadData(ModelData):
         if spacetime_normalize_method is not None:
             spacetime = spacetime.groupby(level='aggregation_end').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
+        #TODO:nearest neighbors regression
+        #if space_impute_group is not None:
+        #    space = space.set_index(SPATIAL_LEVELS + ['join_year', 'aggregation_end']).groupby(level=space_impute_group).apply(data.impute).reset_index()
+
         df = df.merge(spacetime, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
 
         space.set_index(['address_id', 'aggregation_end'], inplace=True)
         space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id', 'join_year'], axis=1, inplace=True)
-        df = df.merge(space, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
+        df = df.merge(space, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False)
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
@@ -297,10 +302,9 @@ class LeadData(ModelData):
         for column, n_clusters in cluster_columns.iteritems():
             data.binarize_clusters(df, column, n_clusters, train=train)
 
-
         X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, category_classes=CATEGORY_CLASSES)
         if impute:
-            X = data.impute(X, train, impute_strategy)
+            X = data.impute(X, train=train, strategy=impute_strategy)
             if normalize:
                 X = data.normalize(X, train)
  
