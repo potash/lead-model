@@ -39,12 +39,12 @@ class LeadData(ModelData):
     # default exclusions set
     # TODO: organize and explain these
     EXCLUDE = { 
-        'kid_id', 'test_id', 'address_id', 'complex_id', 'census_tract_id', # ids
+        'kid_id', 'test_id',# 'address_id', 'complex_id', 'census_tract_id', # ids
         'kid_first_name', 'kid_last_name', 'address_method', 'address', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
         'test_date', 'kid_date_of_birth', #date 
         'join_year', 'aggregation_end',# used for join
-        #'kid_birth_days_to_test',  'address_inspection_init_days_to_test', # variables that confuse the model?
+        'kid_birth_days_to_test',  'test_kid_age_days', 'address_inspection_init_days_to_test', # variables that confuse the model?
         'wic_first_name', 'wic_last_name', 'wic_date_of_birth',
     }
 
@@ -112,6 +112,8 @@ class LeadData(ModelData):
                 test_aggregations={},
                 inspection_aggregations={},
                 building_aggregations={},
+                permit_aggregations={},
+                violation_aggregations={},
                 max_age = None,
                 min_age = None,
                 training='all', # all, preminmax
@@ -124,6 +126,8 @@ class LeadData(ModelData):
                 exclude={}, 
                 undersample=None,
                 wic=True, # keep all wic tests
+                wic_sample_weight=1,
+                ebll_sample_weight=1,
                 impute=True, normalize=True, drop_collinear=False,
                 impute_strategy='mean', 
                 space_impute_group = None,
@@ -148,7 +152,7 @@ class LeadData(ModelData):
         df = df[df.kid_date_of_birth.notnull()]
 #        df.kid_date_of_birth.fillna( (df[test_date] < today).kid_date_of_birth.mean() )
 
-        exclude = self.EXCLUDE.union(SPATIAL_LEVELS).union(exclude)
+        exclude = self.EXCLUDE.union(exclude)
         df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
 
         if min_age is not None:
@@ -172,6 +176,12 @@ class LeadData(ModelData):
             train = train & (df.test_date <= df.kid_minmax_date)
         elif training == 'max':
             train = train & ( (df.test_bll > 5) == (df.kid_max_bll > 5) )
+        elif training == 'first':
+            train = train & (df.kid_test_number == 1)
+        elif training == 'first_address':
+            first = df[train].groupby(['kid_id', 'address_id'])['test_kid_age_days'].idxmin()
+            first = pd.Series(df.index.isin(first), index=df.index)
+            train = train & first
 
         if training_max_test_age is not None:
             train = train & (df.test_kid_age_days <= training_max_test_age)
@@ -249,20 +259,23 @@ class LeadData(ModelData):
         end_dates = df['aggregation_end'].unique()
         engine = util.create_engine()
         
-        left = df[ SPATIAL_LEVELS + ['join_year', 'aggregation_end']].drop_duplicates()
+        spacetime_columns = SPATIAL_LEVELS + ['join_year', 'aggregation_end']
+        left = df[ spacetime_columns ].drop_duplicates()
 
-        tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
-        inspections_agg = get_aggregation('output.inspections_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=left, prefix='inspections')
+        tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left.copy(), prefix='tests')
+        inspections_agg = get_aggregation('output.inspections_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=tests_agg, prefix='inspections')
+        permits_agg = get_aggregation('output.permits_aggregated', permit_aggregations, engine, end_dates=end_dates, left=inspections_agg, prefix='permits')
+        violations_agg = get_aggregation('output.violations_aggregated', violation_aggregations, engine, end_dates=end_dates, left=permits_agg, prefix='violations')
         
-        spacetime = tests_agg.merge(inspections_agg, on=SPATIAL_LEVELS + ['join_year', 'aggregation_end'], copy=False)
-        space = get_building_aggregation(building_aggregations, engine, left=left)
-        
+        #spacetime = tests_agg.merge(inspections_agg, on=spacetime_columns, copy=False).merge(permits_agg, on=spacetime_columns, copy=False)
+        spacetime = violations_agg
+
         # acs data
-        left = df[['census_tract_id', 'join_year']].drop_duplicates()
+        acs_left = df[['census_tract_id', 'join_year']].drop_duplicates()
         acs = self.tables['acs'].set_index(['census_tract_id', 'year'])
         prefix_columns(acs, 'acs_5yr_')
         # use outer join for backfilling
-        acs = left.merge(acs, how='outer', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
+        acs = acs_left.merge(acs, how='outer', left_on=['census_tract_id', 'join_year'], right_index=True, copy=False)
         acs_filled = acs.groupby('census_tract_id').transform(lambda d: d.sort('join_year').fillna(method='backfill'))
         # left join and groupby preserved the left index but grupby dropped the tract
         # so put the tract back
@@ -276,15 +289,16 @@ class LeadData(ModelData):
         if spacetime_normalize_method is not None:
             spacetime = spacetime.groupby(level='aggregation_end').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
-        #TODO:nearest neighbors regression
-        #if space_impute_group is not None:
-        #    space = space.set_index(SPATIAL_LEVELS + ['join_year', 'aggregation_end']).groupby(level=space_impute_group).apply(data.impute).reset_index()
 
         df = df.merge(spacetime, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
 
-        space.set_index(['address_id', 'aggregation_end'], inplace=True)
-        space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id', 'join_year'], axis=1, inplace=True)
-        df = df.merge(space, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False)
+        space = get_building_aggregation(building_aggregations, engine, left=left[SPATIAL_LEVELS].drop_duplicates())
+        #TODO:nearest neighbors regression
+        #if space_impute_group is not None:
+        #    space = space.set_index(SPATIAL_LEVELS + ['join_year', 'aggregation_end']).groupby(level=space_impute_group).apply(data.impute).reset_index()
+        space.set_index('address_id', inplace=True)
+        space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id' ], axis=1, inplace=True)
+        df = df.merge(space, left_on='address_id', right_index=True, how='left', copy=False)
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
@@ -299,6 +313,12 @@ class LeadData(ModelData):
             df.drop("wic_id", axis=1, inplace=True)
 
         df.set_index('test_id', inplace=True)
+
+        self.sample_weight = pd.Series([1]*len(df), index=df.index)
+        if wic and wic_sample_weight > 1:
+            self.sample_weight = self.sample_weight * (df.wic * (wic_sample_weight - 1) + 1)
+        if ebll_sample_weight > 1:
+            self.sample_weight = self.sample_weight * ((df.kid_minmax_bll > bll_threshold) * (ebll_sample_weight - 1) + 1)
 
         for column, n_clusters in cluster_columns.iteritems():
             data.binarize_clusters(df, column, n_clusters, train=train)
@@ -322,10 +342,10 @@ def get_building_aggregation(building_aggregations, engine, left=None):
     df = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
     
     not_null_columns = [c for c in df.columns if c.endswith('_not_null')]
-    df.loc[:,not_null_columns].fillna(False, inplace=True)
+    df.loc[:,not_null_columns] = df.loc[:,not_null_columns].fillna(False) # df.loc[].fillna(inplace=True) is broken
 
-    condition_regex = re.compile('condition_.*_prop')
-    condition_prop_columns = [c for c in df.columns if condition_regex.search(c)]
-    df.loc[:,condition_prop_columns].fillna(0,inplace=True)
+    #condition_regex = re.compile('condition_.*_prop')
+    #condition_prop_columns = [c for c in df.columns if condition_regex.search(c)]
+    #df.loc[:,condition_prop_columns] = df.loc[:,condition_prop_columns].fillna(0)
 
     return df
