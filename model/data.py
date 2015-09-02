@@ -129,8 +129,8 @@ class LeadData(ModelData):
                 wic_sample_weight=1,
                 ebll_sample_weight=1,
                 impute=True, normalize=True, drop_collinear=False,
+                building_aggregations_impute=None,
                 impute_strategy='mean', 
-                space_impute_group = None,
                 ward_id = None, # filter to this particular ward
                 building_year_decade=True,
                 test_date_season=True,
@@ -262,12 +262,11 @@ class LeadData(ModelData):
         spacetime_columns = SPATIAL_LEVELS + ['join_year', 'aggregation_end']
         left = df[ spacetime_columns ].drop_duplicates()
 
-        tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left.copy(), prefix='tests')
+        tests_agg = get_aggregation('output.tests_aggregated', test_aggregations, engine, end_dates=end_dates, left=left, prefix='tests')
         inspections_agg = get_aggregation('output.inspections_aggregated', inspection_aggregations, engine, end_dates=end_dates, left=tests_agg, prefix='inspections')
         permits_agg = get_aggregation('output.permits_aggregated', permit_aggregations, engine, end_dates=end_dates, left=inspections_agg, prefix='permits')
         violations_agg = get_aggregation('output.violations_aggregated', violation_aggregations, engine, end_dates=end_dates, left=permits_agg, prefix='violations')
         
-        #spacetime = tests_agg.merge(inspections_agg, on=spacetime_columns, copy=False).merge(permits_agg, on=spacetime_columns, copy=False)
         spacetime = violations_agg
 
         # acs data
@@ -292,10 +291,9 @@ class LeadData(ModelData):
 
         df = df.merge(spacetime, left_on=['address_id', 'aggregation_end'], right_index=True, how='left', copy=False )
 
-        space = get_building_aggregation(building_aggregations, engine, left=left[SPATIAL_LEVELS].drop_duplicates())
-        #TODO:nearest neighbors regression
-        #if space_impute_group is not None:
-        #    space = space.set_index(SPATIAL_LEVELS + ['join_year', 'aggregation_end']).groupby(level=space_impute_group).apply(data.impute).reset_index()
+        space_columns = SPATIAL_LEVELS + ['address_lat', 'address_lng']
+        left = df[ space_columns ].drop_duplicates()
+        space = get_building_aggregation(building_aggregations, engine, left=left, impute_params=building_aggregations_impute)
         space.set_index('address_id', inplace=True)
         space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id' ], axis=1, inplace=True)
         df = df.merge(space, left_on='address_id', right_index=True, how='left', copy=False)
@@ -310,7 +308,7 @@ class LeadData(ModelData):
             prefix_columns(wic_df, "wic_")
             df = df.merge(wic_df[['wic_id','wic_kid_id']], left_on="kid_id", right_on="wic_kid_id", how="left", copy=False)
             df["wic"] = df['wic_id'].notnull()
-            df.drop("wic_id", axis=1, inplace=True)
+            df.drop(["wic_id", "wic_kid_id"], axis=1, inplace=True)
 
         df.set_index('test_id', inplace=True)
 
@@ -338,7 +336,7 @@ class LeadData(ModelData):
         if undersample is not None:
             self.cv[0] = undersample_to(self.y, self.cv[0], undersample)
     
-def get_building_aggregation(building_aggregations, engine, left=None):
+def get_building_aggregation(building_aggregations, engine, left=None, impute_params=None):
     df = get_aggregation('output.buildings_aggregated', building_aggregations, engine, left=left)
     
     not_null_columns = [c for c in df.columns if c.endswith('_not_null')]
@@ -347,5 +345,11 @@ def get_building_aggregation(building_aggregations, engine, left=None):
     #condition_regex = re.compile('condition_.*_prop')
     #condition_prop_columns = [c for c in df.columns if condition_regex.search(c)]
     #df.loc[:,condition_prop_columns] = df.loc[:,condition_prop_columns].fillna(0)
+
+    # TODO technically this is biased because it includes the test set in nearest neighbors fit
+    if impute_params is not None:
+        regex = re.compile('.*_(assessor|footprint)_.*')
+        data_columns = filter(regex.match, df.columns)
+        data.nearest_neighbors_impute(df, ['address_lat', 'address_lng'], data_columns, impute_params)
 
     return df
