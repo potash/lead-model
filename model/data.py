@@ -25,16 +25,21 @@ import warnings
 SPATIAL_LEVELS = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
 
 class LeadData(ModelData):
+    basedir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    DEPENDENCIES = [os.path.join(basedir, d) for d in ['psql/output/tests_aggregated', 'psql/output/buildings_aggregated', 'psql/output/permits_aggregated', 'psql/output/violations_aggregated', 'data/output/tests.pkl', 'data/output/acs.pkl', 'psql/output/wic']]
+
     # default exclusions set
     # TODO: organize and explain these
     EXCLUDE = { 
-        'kid_id', 'test_id',# 'address_id', 'complex_id', 'census_tract_id', # ids
+        'kid_id', 'test_id', 'address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', # ids
+        'first_name', 'last_name', 'address_apt',
         'kid_first_name', 'kid_last_name', 'address_method', 'address', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
+        'kid_max_sample_date', 'kid_min_sample_date',
         'test_date', 'kid_date_of_birth', #date 
         'join_year', 'aggregation_end',# used for join
+        'first_address', # used for train=first_address
         'kid_birth_days_to_test',  'test_kid_age_days', 'address_inspection_init_days_to_test', # variables that confuse the model?
-        'wic_first_name', 'wic_last_name', 'wic_date_of_birth',
     }
 
     CATEGORY_CLASSES = {
@@ -60,17 +65,19 @@ class LeadData(ModelData):
                 year, train_years,
                 exclude_addresses=[296888, # Aunt Martha's Health Center
                                    70798,  # Union Health Service Inc. 
-                                   447803]): # Former Maryville Hospital
+                                   447803],
+                aggregation_end_lag=False): # Former Maryville Hospital
         self.directory = directory
         self.tables = {'addresses':None, 'acs':None}
         self.year = year
         self.train_years = train_years
         self.exclude_addresses=exclude_addresses
+        self.aggregation_end_lag = aggregation_end_lag
 
         self.today = datetime.date(self.year, 1, 1)
     
     def write(self, dirname):
-        self.df.to_hdf(os.path.join(dirname, 'df.h5'), 'df')
+        self.df.to_hdf(os.path.join(dirname, 'df.h5'), 'df', mode='w')
         
     # read tables from disk
     def read_pkl(self):
@@ -96,17 +103,23 @@ class LeadData(ModelData):
         df = df[date_mask]
         df = df[df.kid_date_of_birth.notnull()]
 
-
         df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
-
-        df = df[df.address_id.notnull() & df.ward_id.notnull() & df.census_tract_id.notnull() & df.community_area_id.notnull()]
+        df = df[df.address_id.notnull() & df.census_tract_id.notnull()]
         if self.exclude_addresses is not None:
             df = df[~df.address_id.isin(self.exclude_addresses)]
 
-        df.reset_index(inplace=True)
+        train_or_first_test_subset(self.today, df)
+
+        # used for train=first_address, indicates whether a past test is the first for that kid at that address
+        first_address = df[df.test_date < self.today].groupby(['kid_id', 'address_id'])['test_kid_age_days'].idxmin()
+        df['first_address'] = pd.Series(df.index.isin(first_address), index=df.index)
 
         df['join_year'] = df.test_date.apply(lambda d: min(d.year-1, self.year-1)) 
-        df['aggregation_end'] = df.test_date.apply(lambda d: util.datetime64(min(d.year, self.year), self.today.month, self.today.day)) 
+        df['aggregation_end'] = df.test_date.apply(lambda d: util.datetime64(min(d.year, self.year), self.today.month, self.today.day))
+
+        if self.aggregation_end_lag:
+            train = df.test_date < self.today
+            df.loc[train, 'aggregation_end'] = df.loc[train, 'test_date'].apply(lambda d: util.datetime64(min(d.year-1, self.year), self.today.month, self.today.day))
         
         # spatio-temporal
         end_dates = df['aggregation_end'].unique()
@@ -116,8 +129,8 @@ class LeadData(ModelData):
 
         spacetime = get_aggregation('output.tests_aggregated', tests_aggregated.level_deltas, engine, end_dates=end_dates, left=left, prefix='tests')
         spacetime = get_aggregation('output.inspections_aggregated', tests_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='inspections')
-#        spacetime = get_aggregation('output.permits_aggregated', permits_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='permits')
-#        spacetime = get_aggregation('output.violations_aggregated', violations_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='violations')
+        spacetime = get_aggregation('output.permits_aggregated', permits_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='permits')
+        spacetime = get_aggregation('output.violations_aggregated', violations_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='violations')
         
         # acs data
         acs_left = df[['census_tract_id', 'join_year']].drop_duplicates()
@@ -183,7 +196,12 @@ class LeadData(ModelData):
                 ward_id = None, # filter to this particular ward
                 cluster_columns={}, # dict of ('column_name': n_clusters) pairs
                 test_date_season=True,
-                kid=True, tract=True, address=True, ward=True, address_history=True, tract_history=True):
+                kid=True, tract=True, address=True, ward=True, address_history=True, tract_history=True,
+                spatial_resolution=None,
+                normalize_date_of_birth=False,
+                spacetime_differences={},
+                testing_test_number = None,
+                testing_masks = None):
 
         df = self.df
 
@@ -198,9 +216,7 @@ class LeadData(ModelData):
         elif training == 'first':
             train = train & (df.kid_test_number == 1)
         elif training == 'first_address':
-            first = df[train].groupby(['kid_id', 'address_id'])['test_kid_age_days'].idxmin()
-            first = pd.Series(df.index.isin(first), index=df.index)
-            train = train & first
+            train = train & df['first_address']
 
         if training_max_test_age is not None:
             train = train & (df.test_kid_age_days <= training_max_test_age)
@@ -217,19 +233,23 @@ class LeadData(ModelData):
             test = test & (df.test_kid_age_days <= testing_max_test_age)
         if testing_max_today_age is not None:
             test = test & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days <= testing_max_today_age))
+        if testing_test_number is not None:
+            test = test & (df.kid_test_number == testing_test_number)
 
-        # want to get a single test for each future kid
-        # if they get poisoned, take their first poisoned test
-        # if they don't, take their first test
-        df2 = df[test]# & ((df.test_bll > 5) == (df.kid_minmax_bll > 5))]
-        testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
-        first_test = pd.Series(df.index.isin(testix), index=df.index)
-        test = first_test & ( ((df.kid_minmax_date >= self.today) & (df.kid_minmax_bll > 5)) | (df.kid_minmax_bll <= 5))
+        self.masks = pd.DataFrame({
+            'infant': df.kid_date_of_birth < self.today,
+            'in_utero': df.kid_date_of_birth >= self.today,
+            'wic': df.wic
+        })
 
-        train_or_test = train | test
-        df.drop(df.index[~train_or_test], inplace=True)
-        train = train.loc[train_or_test]
-        test = test.loc[train_or_test]
+        if testing_masks is not None:
+            test = test & reduce(lambda a,b: a & b, (self.masks[mask] for mask in testing_masks))
+
+        #self._train_or_first_test_subset(df, test, train)
+        df.drop(df.index[~(train | test)], inplace=True)
+        train = train.loc[df.index]
+        test = test.loc[df.index]
+        self.masks = self.masks.loc[df.index]
         self.cv = (train,test)
 
         # set test details for (future) test set to nan to eliminate leakage!
@@ -246,11 +266,22 @@ class LeadData(ModelData):
 
         df['kid_date_of_birth_month'] = df['kid_date_of_birth'].apply(lambda d: d.month)
         df['kid_birth_date'] = df['kid_date_of_birth']
-    
+
+
         for c in ['kid_birth']: #['address_inspection_init', 'address_inspection_comply', 'kid_birth']:
             df[c + '_days'] = df[c + '_date'].apply(lambda d: None if pd.isnull(d) else (d - epoch).days)
             df[c + '_days_to_test'] = pd.to_timedelta((df['test_date'] - df[c + '_date']), 'D').astype(int)
             df.drop(c + '_date', axis=1, inplace=True)
+
+        if normalize_date_of_birth:
+            df.loc[train, ['kid_birth_days']] = preprocessing.scale(df.loc[train, ['kid_birth_days']])
+            df.loc[test, ['kid_birth_days']] = preprocessing.scale(df.loc[test, ['kid_birth_days']])
+
+        for event in spacetime_differences:
+            for space in spacetime_differences[event]:
+                for t1, t2 in spacetime_differences[event][space]:
+                    d = spacetime_difference(df, event, space, t1, t2)
+                    df = pd.concat((df,d), axis=1, copy=False)
  
         #if spacetime_normalize_method is not None:
         #    spacetime = spacetime.groupby(level='aggregation_end').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
@@ -276,6 +307,11 @@ class LeadData(ModelData):
             df['test_date_month'] = df['test_date'].apply(lambda d: d.month).where(train)
             self.CATEGORY_CLASSES['test_date_month'] = range(1,13)
 
+        if spatial_resolution is not None:
+            i = SPATIAL_LEVELS.index(spatial_resolution + '_id')
+            if i > 0:
+                exclude.update(map(lambda d: d[:-3] + '_.*', SPATIAL_LEVELS[:i-1]))
+
         if buildings_impute_params is not None:
             regex = re.compile('.*_(assessor|footprint)_.*')
             data_columns = filter(regex.match, df.columns)
@@ -293,3 +329,38 @@ class LeadData(ModelData):
 
         if drop_collinear:
             util.drop_collinear(X)
+
+# this helper finds the first test for each kid_id in the test set if they haven't been poisoned as of today
+# call that the test set, and drop (in place!) anything not in train (default = ~test) or test
+def train_or_first_test_subset(today, df):
+    train = (df.test_date < today)
+    test = ~train
+    # want to get a single test for each future kid
+    # if they get poisoned, take their first poisoned test
+    # if they don't, take their first test
+    df2 = df[test]
+    testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
+    first_test = pd.Series(df.index.isin(testix), index=df.index)
+    test = first_test & ( ((df.kid_minmax_date >= today) & (df.kid_minmax_bll > 5)) | (df.kid_minmax_bll <= 5))
+
+    df.drop(df.index[~(train | test)], inplace=True)
+
+# return the column-wise subset corresponding to the given event space and time
+# e.g. get_spacetime(df, 'tests', 'census_tract', '1y')
+def get_spacetime(df, event, space, time):
+    columns = filter(lambda c: c.startswith(space + '_' + event + '_' + time + '_'), df.columns)
+    return df[columns]
+
+# difference between two events at the same space in different times
+def spacetime_difference(df, event, space, time1, time2):
+    # get the two event dfs
+    df1 = get_spacetime(df, event, space, time1)
+    df2 = get_spacetime(df, event, space, time2)
+    # remove the prefixes
+    df1.columns = [c[len(space + '_' + event + '_' + time1 + '_'):] for c in df1.columns]
+    df2.columns = [c[len(space + '_' + event + '_' + time2 + '_'):] for c in df2.columns]
+    # difference
+    df = df1 - df2
+    # prefix
+    prefix_columns(df, space + '_' + event + '_' + time1 + '-' + time2 + '_')
+    return df
