@@ -201,7 +201,9 @@ class LeadData(ModelData):
                 normalize_date_of_birth=False,
                 spacetime_differences={},
                 testing_test_number = None,
-                testing_masks = None):
+                testing_masks = None,
+                training_min_max_sample_age=None,
+                testing_min_max_sample_age=None):
 
         df = self.df
 
@@ -220,6 +222,8 @@ class LeadData(ModelData):
 
         if training_max_test_age is not None:
             train = train & (df.test_kid_age_days <= training_max_test_age)
+        if training_min_max_sample_age is not None:
+            train = train & (df.kid_max_sample_age_days >= training_min_max_sample_age)
 
         test = (df.test_date >= self.today) & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days > testing_min_today_age))
         if testing == 'all':
@@ -235,6 +239,8 @@ class LeadData(ModelData):
             test = test & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days <= testing_max_today_age))
         if testing_test_number is not None:
             test = test & (df.kid_test_number == testing_test_number)
+        if training_min_max_sample_age is not None:
+            train = train & (df.kid_max_sample_age_days >= training_min_max_sample_age)
 
         self.masks = pd.DataFrame({
             'infant': df.kid_date_of_birth < self.today,
