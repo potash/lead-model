@@ -35,7 +35,7 @@ class LeadData(ModelData):
         'first_name', 'last_name', 'address_apt',
         'kid_first_name', 'kid_last_name', 'address_method', 'address', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
-        'kid_max_sample_date', 'kid_min_sample_date',
+        'kid_min_sample_date', 'kid_max_sample_date', 'kid_max_sample_age_days',
         'test_date', 'kid_date_of_birth', #date 
         'join_year', 'aggregation_end',# used for join
         'first_address', # used for train=first_address
@@ -186,7 +186,8 @@ class LeadData(ModelData):
                 testing_max_today_age=None,
                 testing_min_today_age=0,
                 community_area = False, # don't include community area binaries
-                exclude={}, 
+                exclude={},
+                include={},
                 wic_sample_weight=1,
                 ebll_sample_weight=1,
                 impute=True, normalize=True, drop_collinear=False,
@@ -202,8 +203,9 @@ class LeadData(ModelData):
                 spacetime_differences={},
                 testing_test_number = None,
                 testing_masks = None,
-                training_min_max_sample_age=None,
-                testing_min_max_sample_age=None):
+                training_min_max_sample_age=None, # only use samples of sufficient age (or poisoned)
+                tests_aggregated_ages=None # whether or not to include .*_tests_.*_age.*
+        ):
 
         df = self.df
 
@@ -223,7 +225,8 @@ class LeadData(ModelData):
         if training_max_test_age is not None:
             train = train & (df.test_kid_age_days <= training_max_test_age)
         if training_min_max_sample_age is not None:
-            train = train & (df.kid_max_sample_age_days >= training_min_max_sample_age)
+            df['kid_max_sample_age_days'] = (df.kid_min_sample_date - df.kid_date_of_birth) / np.timedelta64(1, 'D')
+            train = train & ( (df.kid_max_sample_age_days >= training_min_max_sample_age) | (df.kid_max_bll > 5) ) 
 
         test = (df.test_date >= self.today) & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days > testing_min_today_age))
         if testing == 'all':
@@ -239,8 +242,6 @@ class LeadData(ModelData):
             test = test & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days <= testing_max_today_age))
         if testing_test_number is not None:
             test = test & (df.kid_test_number == testing_test_number)
-        if training_min_max_sample_age is not None:
-            train = train & (df.kid_max_sample_age_days >= training_min_max_sample_age)
 
         self.masks = pd.DataFrame({
             'infant': df.kid_date_of_birth < self.today,
@@ -317,6 +318,10 @@ class LeadData(ModelData):
             i = SPATIAL_LEVELS.index(spatial_resolution + '_id')
             if i > 0:
                 exclude.update(map(lambda d: d[:-3] + '_.*', SPATIAL_LEVELS[:i-1]))
+
+        print tests_aggregated_ages
+        if tests_aggregated_ages is None:
+            exclude.add('.*_tests_.*_age_.*')
 
         if buildings_impute_params is not None:
             regex = re.compile('.*_(assessor|footprint)_.*')
