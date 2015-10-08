@@ -204,7 +204,6 @@ class LeadData(ModelData):
                 testing_test_number = None,
                 testing_masks = None,
                 training_min_max_sample_age=None, # only use samples of sufficient age (or poisoned)
-                tests_aggregated_ages=None # whether or not to include .*_tests_.*_age.*
         ):
 
         df = self.df
@@ -318,10 +317,6 @@ class LeadData(ModelData):
             i = SPATIAL_LEVELS.index(spatial_resolution + '_id')
             if i > 0:
                 exclude.update(map(lambda d: d[:-3] + '_.*', SPATIAL_LEVELS[:i-1]))
-
-        print tests_aggregated_ages
-        if tests_aggregated_ages is None:
-            exclude.add('.*_tests_.*_age_.*')
 
         if buildings_impute_params is not None:
             regex = re.compile('.*_(assessor|footprint)_.*')
