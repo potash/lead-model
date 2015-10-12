@@ -26,7 +26,7 @@ SPATIAL_LEVELS = ['address_id', 'building_id', 'complex_id', 'census_block_id', 
 
 class LeadData(ModelData):
     basedir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    DEPENDENCIES = [os.path.join(basedir, d) for d in ['psql/output/tests_aggregated', 'psql/output/buildings_aggregated', 'psql/output/permits_aggregated', 'psql/output/violations_aggregated', 'data/output/tests.pkl', 'data/output/acs.pkl', 'psql/output/wic']]
+    DEPENDENCIES = [os.path.join(basedir, d) for d in ['psql/output/tests_aggregated', 'psql/output/buildings_aggregated', 'psql/output/permits_aggregated', 'psql/output/violations_aggregated', 'data/output/tests.pkl', 'data/output/acs.pkl']]
 
     # default exclusions set
     # TODO: organize and explain these
@@ -156,12 +156,6 @@ class LeadData(ModelData):
         space.set_index('address_id', inplace=True)
         space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id' ], axis=1, inplace=True)
         df = df.merge(space, left_on='address_id', right_index=True, how='left', copy=False)
-
-        wic_df = pd.read_sql('select id,kid_id from output.wic', engine)
-        prefix_columns(wic_df, "wic_")
-        df = df.merge(wic_df[['wic_id','wic_kid_id']], left_on="kid_id", right_on="wic_kid_id", how="left", copy=False)
-        df["wic"] = df['wic_id'].notnull()
-        df.drop(["wic_id", "wic_kid_id"], axis=1, inplace=True)
 
         df.set_index('test_id', inplace=True)
 
