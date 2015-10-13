@@ -63,15 +63,11 @@ class LeadData(ModelData):
     
     def __init__(self, directory,
                 year, train_years,
-                exclude_addresses=[296888, # Aunt Martha's Health Center
-                                   70798,  # Union Health Service Inc. 
-                                   447803],
-                aggregation_end_lag=False): # Former Maryville Hospital
+                aggregation_end_lag=False):
         self.directory = directory
         self.tables = {'addresses':None, 'acs':None}
         self.year = year
         self.train_years = train_years
-        self.exclude_addresses=exclude_addresses
         self.aggregation_end_lag = aggregation_end_lag
 
         self.today = datetime.date(self.year, 1, 1)
@@ -105,8 +101,6 @@ class LeadData(ModelData):
 
         df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
         df = df[df.address_id.notnull() & df.census_tract_id.notnull()]
-        if self.exclude_addresses is not None:
-            df = df[~df.address_id.isin(self.exclude_addresses)]
 
         train_or_first_test_subset(self.today, df)
 
