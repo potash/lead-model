@@ -31,7 +31,7 @@ class LeadData(ModelData):
     # default exclusions set
     # TODO: organize and explain these
     EXCLUDE = { 
-        'kid_id', 'test_id', 'address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', # ids
+        'kid_id', 'test_id', 'address_id', 'wic_address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', # ids
         'first_name', 'last_name', 'address_apt',
         'kid_first_name', 'kid_last_name', 'address_method', 'address', # strings
         'test_bll', 'test_minmax', 'kid_minmax_date', 'kid_max_bll', 'kid_max_date', # leakage
@@ -99,14 +99,20 @@ class LeadData(ModelData):
         df = df[date_mask]
         df = df[df.kid_date_of_birth.notnull()]
 
+        #if self.wic_address:
+        #    df['address_id'] = df.address_id.where(~df.wic, df.wic_address_id)
+        df = self._expand_wic_addresses(df)
+
         df = df.merge(self.tables['addresses'], on='address_id', how='left', copy=False)
         df = df[df.address_id.notnull() & df.census_tract_id.notnull()]
 
         train_or_first_test_subset(self.today, df)
 
         # used for train=first_address, indicates whether a past test is the first for that kid at that address
-        first_address = df[df.test_date < self.today].groupby(['kid_id', 'address_id'])['test_kid_age_days'].idxmin()
-        df['first_address'] = pd.Series(df.index.isin(first_address), index=df.index)
+        # group by currbllshort_address so that if an address is wic but also partially currbllshort...
+        cur_first_address = df[df.currbllshort_address][df.test_date < self.today].groupby(['kid_id', 'address_id'])['test_kid_age_days'].idxmin()
+        wic_first_address = df[df.wic_address][df.test_date < self.today].groupby(['kid_id'])['test_kid_age_days'].idxmin()
+        df['first_address'] = pd.Series(df.index.isin(pd.concat((cur_first_address, wic_first_address))), index=df.index)
 
         df['join_year'] = df.test_date.apply(lambda d: min(d.year-1, self.year-1)) 
         df['aggregation_end'] = df.test_date.apply(lambda d: util.datetime64(min(d.year, self.year), self.today.month, self.today.day))
@@ -121,10 +127,10 @@ class LeadData(ModelData):
         spacetime_columns = SPATIAL_LEVELS + ['join_year', 'aggregation_end']
         left = df[ spacetime_columns ].drop_duplicates()
 
-        spacetime = get_aggregation('output.tests_aggregated', tests_aggregated.level_deltas, engine, end_dates=end_dates, left=left, prefix='tests')
-        spacetime = get_aggregation('output.inspections_aggregated', tests_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='inspections')
-        spacetime = get_aggregation('output.permits_aggregated', permits_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='permits')
-        spacetime = get_aggregation('output.violations_aggregated', violations_aggregated.level_deltas, engine, end_dates=end_dates, left=spacetime, prefix='violations')
+        spacetime = get_aggregation('output.tests_aggregated', tests_aggregated.level_deltas, engine, left=left, prefix='tests')
+        spacetime = get_aggregation('output.inspections_aggregated', tests_aggregated.level_deltas, engine, left=spacetime, prefix='inspections')
+        spacetime = get_aggregation('output.permits_aggregated', permits_aggregated.level_deltas, engine, left=spacetime, prefix='permits')
+        spacetime = get_aggregation('output.violations_aggregated', violations_aggregated.level_deltas, engine, left=spacetime, prefix='violations')
         
         # acs data
         acs_left = df[['census_tract_id', 'join_year']].drop_duplicates()
@@ -151,7 +157,7 @@ class LeadData(ModelData):
         space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id' ], axis=1, inplace=True)
         df = df.merge(space, left_on='address_id', right_index=True, how='left', copy=False)
 
-        df.set_index('test_id', inplace=True)
+        df.set_index(['test_id', 'currbllshort_address', 'wic_address'], inplace=True)
 
         self.df = df
 
@@ -164,6 +170,22 @@ class LeadData(ModelData):
         not_null_df = not_null_df.fillna(False)
 
         return df
+
+    # when wic_address is not null and differs from (currbllshort) address
+    # create another entry for it with address_id set to it
+    # also drop wic_address_id and create booleans wic_address and currbllshort_address indicating that
+    def _expand_wic_addresses(self, tests):
+        tests['currbllshort_address'] = tests.address_id.notnull()
+        tests['wic_address'] = tests.wic_address_id.notnull() & (tests['address_id'] == tests['wic_address_id'])
+    
+        wic_tests = tests[ (tests.wic_address_id != tests.address_id) & tests.wic_address_id.notnull() ].copy()
+        wic_tests['address_id'] = wic_tests['wic_address_id']
+        wic_tests['wic_address'] = True
+        wic_tests['currbllshort_address'] = False
+    
+        tests = pd.concat((tests, wic_tests), ignore_index=True, copy=False)
+        tests.drop('wic_address_id', axis=1, inplace=True)
+        return tests
 
     def transform(self,
                 bll_threshold=5,
@@ -192,6 +214,7 @@ class LeadData(ModelData):
                 testing_test_number = None,
                 testing_masks = None,
                 training_min_max_sample_age=None, # only use samples of sufficient age (or poisoned)
+                training_wic_address=None
         ):
 
         df = self.df
@@ -214,6 +237,8 @@ class LeadData(ModelData):
         if training_min_max_sample_age is not None:
             df['kid_max_sample_age_days'] = (df.kid_min_sample_date - df.kid_date_of_birth) / np.timedelta64(1, 'D')
             train = train & ( (df.kid_max_sample_age_days >= training_min_max_sample_age) | (df.kid_max_bll > 5) ) 
+        if training_wic_address is None:
+            train = train & util.index_as_column(df, 'currbllshort_address')
 
         test = (df.test_date >= self.today) & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days > testing_min_today_age))
         if testing == 'all':
@@ -233,8 +258,9 @@ class LeadData(ModelData):
         self.masks = pd.DataFrame({
             'infant': df.kid_date_of_birth < self.today,
             'in_utero': df.kid_date_of_birth >= self.today,
-            'wic': df.wic
+            'wic': df.wic,
         })
+        self.masks.index = df.index
 
         if testing_masks is not None:
             test = test & reduce(lambda a,b: a & b, (self.masks[mask] for mask in testing_masks))
@@ -312,17 +338,17 @@ class LeadData(ModelData):
             data.nearest_neighbors_impute(df, ['address_lat', 'address_lng'], data_columns, buildings_impute_params)
 
         X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, category_classes=self.CATEGORY_CLASSES)
-        X = X.astype(float, copy=False)
-        if impute:
-            X = data.impute(X, train=train, strategy=impute_strategy)
-            if normalize:
-                X = data.normalize(X, train)
 
-        self.X = X
-        self.y = y > bll_threshold
+        if impute:
+            X = data.impute(X, train=train)
+            if normalize:
+                X = data.normalize(X, train=train)
 
         if drop_collinear:
             util.drop_collinear(X)
+
+        self.X = X
+        self.y = y > bll_threshold
 
 # this helper finds the first test for each kid_id in the test set if they haven't been poisoned as of today
 # call that the test set, and drop (in place!) anything not in train (default = ~test) or test
@@ -333,8 +359,9 @@ def train_or_first_test_subset(today, df):
     # if they get poisoned, take their first poisoned test
     # if they don't, take their first test
     df2 = df[test]
-    testix = df2.groupby('kid_id')['test_kid_age_days'].idxmin()
-    first_test = pd.Series(df.index.isin(testix), index=df.index)
+    cur_testix = df2[df2.currbllshort_address].groupby('kid_id')['test_kid_age_days'].idxmin()
+    wic_testix = df2[df2.wic_address].groupby('kid_id')['test_kid_age_days'].idxmin()
+    first_test = pd.Series(df.index.isin(pd.concat((cur_testix, wic_testix))), index=df.index)
     test = first_test & ( ((df.kid_minmax_date >= today) & (df.kid_minmax_bll > 5)) | (df.kid_minmax_bll <= 5))
 
     df.drop(df.index[~(train | test)], inplace=True)
