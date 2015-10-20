@@ -238,7 +238,7 @@ class LeadData(ModelData):
             df['kid_max_sample_age_days'] = (df.kid_min_sample_date - df.kid_date_of_birth) / np.timedelta64(1, 'D')
             train = train & ( (df.kid_max_sample_age_days >= training_min_max_sample_age) | (df.kid_max_bll > 5) ) 
         if training_wic_address is None:
-            train = train & util.index_as_column(df, 'currbllshort_address')
+            train = train & util.index_as_series(df, 'currbllshort_address')
 
         test = (df.test_date >= self.today) & (df.kid_date_of_birth.apply(lambda d: (self.today - d).days > testing_min_today_age))
         if testing == 'all':
