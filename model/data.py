@@ -10,7 +10,6 @@ import re
 
 import random
 import datetime
-from lead.output.aggregate import aggregate
 from lead.output import tests_aggregated,buildings_aggregated,inspections_aggregated,permits_aggregated,violations_aggregated
 
 from drain import util
