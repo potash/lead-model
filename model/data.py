@@ -264,12 +264,9 @@ class LeadData(ModelData):
         if testing_masks is not None:
             test = test & reduce(lambda a,b: a & b, (self.masks[mask] for mask in testing_masks))
 
-        #self._train_or_first_test_subset(df, test, train)
-        df.drop(df.index[~(train | test)], inplace=True)
-        train = train.loc[df.index]
-        test = test.loc[df.index]
-        self.masks = self.masks.loc[df.index]
+        df, train, test = data.train_test_subset(df, train, test)
         self.cv = (train,test)
+        self.masks = self.masks.loc[df.index]
 
         # set test details for (future) test set to nan to eliminate leakage!
         # can't know about minmax bll,date for future poisoningsa!
