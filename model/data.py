@@ -157,6 +157,7 @@ class LeadData(ModelData):
         df = df.merge(space, left_on='address_id', right_index=True, how='left', copy=False)
 
         df.set_index(['test_id', 'currbllshort_address', 'wic_address'], inplace=True)
+        df['wic_address'] = util.index_as_series(df, 'wic_address')
 
         self.df = df
 
@@ -197,8 +198,8 @@ class LeadData(ModelData):
                 community_area = False, # don't include community area binaries
                 exclude={},
                 include={},
+                wic_address_sample_weight=1,
                 wic_sample_weight=1,
-                ebll_sample_weight=1,
                 impute=True, normalize=True, drop_collinear=False,
                 spacetime_normalize_method = None, # whether or not to normalize each year of tract data
                 buildings_impute_params=None,
@@ -213,7 +214,7 @@ class LeadData(ModelData):
                 testing_test_number = None,
                 testing_masks = None,
                 training_min_max_sample_age=None, # only use samples of sufficient age (or poisoned)
-                training_wic_address=None
+                training_wic_address=True,
         ):
 
         df = self.df
@@ -334,6 +335,8 @@ class LeadData(ModelData):
             data.nearest_neighbors_impute(df, ['address_lat', 'address_lng'], data_columns, buildings_impute_params)
 
         X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, category_classes=self.CATEGORY_CLASSES)
+
+        self.sample_weight = (X.wic*wic_sample_weight) * (X.wic_address*wic_address_sample_weight)
 
         if impute:
             X = data.impute(X, train=train)
