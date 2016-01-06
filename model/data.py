@@ -19,8 +19,6 @@ from drain import data
 
 import warnings
 
-
-
 SPATIAL_LEVELS = ['address_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id']
 
 class LeadData(ModelData):
@@ -53,13 +51,6 @@ class LeadData(ModelData):
         'wic_clinic' : [ 'GreaterLawn', 'FriendFamily', 'LowerWest', 'NearWest', 'WestTown', 'ChicagoFamily', 'ErieSuperior', 'HenryBooth', 'WestsideHP', 'Lakeview', 'Englewood', 'Uptown', 'Austin'],
     }
 
-    DATE_COLUMNS = {
-        'inspections' : ['init_date', 'comply_date']
-    }
-    
-    KIDS_DATE_COLUMNS = ['kid_date_of_birth', 'test_date', 
-                    'address_inspection_init_date', 'address_inspection_comply_date']
-    
     def __init__(self, directory,
                 year, train_years,
                 aggregation_end_lag=False):
@@ -124,13 +115,12 @@ class LeadData(ModelData):
         end_dates = df['aggregation_end'].unique()
         
         spacetime_columns = SPATIAL_LEVELS + ['join_year', 'aggregation_end']
-        left = df[ spacetime_columns ].drop_duplicates()
+        spacetime = df[ spacetime_columns ].drop_duplicates() # this is the index that everything gets left-joined to
 
-        spacetime = get_aggregation('output.tests_aggregated', tests_aggregated.level_deltas, engine, left=left, prefix='tests')
-        spacetime = get_aggregation('output.inspections_aggregated', tests_aggregated.level_deltas, engine, left=spacetime, prefix='inspections')
-        spacetime = get_aggregation('output.permits_aggregated', permits_aggregated.level_deltas, engine, left=spacetime, prefix='permits')
-        spacetime = get_aggregation('output.violations_aggregated', violations_aggregated.level_deltas, engine, left=spacetime, prefix='violations')
-        
+        for a in (tests_aggregated, inspections_aggregated, permits_aggregated, violations_aggregated):
+            table_name,prefix = aggregation_info(a)
+            spacetime = get_aggregation(table_name, a.aggregations, engine, left=spacetime, prefix=prefix)
+
         # acs data
         acs_left = df[['census_tract_id', 'join_year']].drop_duplicates()
         acs = self.tables['acs'].set_index(['census_tract_id', 'year'])
@@ -151,7 +141,7 @@ class LeadData(ModelData):
 
         space_columns = SPATIAL_LEVELS + ['address_lat', 'address_lng']
         left = df[ space_columns ].drop_duplicates()
-        space = self._get_building_aggregation(buildings_aggregated.levels, engine, left=left)
+        space = self._get_building_aggregation(buildings_aggregated.aggregations, engine, left=left)
         space.set_index('address_id', inplace=True)
         space.drop(['census_tract_id', 'building_id', 'complex_id', 'census_block_id', 'census_tract_id', 'ward_id', 'community_area_id' ], axis=1, inplace=True)
         df = df.merge(space, left_on='address_id', right_index=True, how='left', copy=False)
@@ -196,8 +186,8 @@ class LeadData(ModelData):
                 testing_max_today_age=None,
                 testing_min_today_age=0,
                 community_area = False, # don't include community area binaries
-                exclude={},
-                include={},
+                exclude=set(),
+                include=set(),
                 wic_address_sample_weight=1,
                 wic_sample_weight=1,
                 impute=True, normalize=True, drop_collinear=False,
@@ -215,6 +205,7 @@ class LeadData(ModelData):
                 testing_masks = None,
                 training_min_max_sample_age=None, # only use samples of sufficient age (or poisoned)
                 training_wic_address=True,
+                tests={},inspections={},permits={},violations={},buildings={},
         ):
 
         df = self.df
@@ -303,7 +294,19 @@ class LeadData(ModelData):
         #if spacetime_normalize_method is not None:
         #    spacetime = spacetime.groupby(level='aggregation_end').apply(lambda x: util.normalize(x, method=spacetime_normalize_method))
 
-        exclude = self.EXCLUDE.union(exclude)
+        exclude = set(exclude)
+        exclude.update(self.EXCLUDE)
+
+        l = locals()
+        st_exclude = set(['st_.*'])
+        st_include = set()
+        for a in (tests_aggregated, inspections_aggregated, permits_aggregated, violations_aggregated, buildings_aggregated):
+            table_name, prefix = aggregation_info(a)
+            aggregations=l[prefix] # e.g. tests, buildings, etc.
+            if prefix == 'buildings':
+                prefix = None
+            st_include.update(data.include_aggregations(aggregations, prefix, a.aggregations))
+        df = data.select_features(df, exclude=st_exclude, include=st_include)
 
         if not address_history:
             exclude.update(['address_inspections_.*', 'address_tests_.*'])
@@ -334,7 +337,7 @@ class LeadData(ModelData):
             data_columns = filter(regex.match, df.columns)
             data.nearest_neighbors_impute(df, ['address_lat', 'address_lng'], data_columns, buildings_impute_params)
 
-        X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, category_classes=self.CATEGORY_CLASSES)
+        X,y = data.Xy(df, y_column = 'kid_minmax_bll', exclude=exclude, include=include, category_classes=self.CATEGORY_CLASSES)
 
         self.sample_weight = (X.wic*wic_sample_weight) * (X.wic_address*wic_address_sample_weight)
 
@@ -365,8 +368,6 @@ def train_or_first_test_subset(today, df):
 
     df.drop(df.index[~(train | test)], inplace=True)
 
-# return the column-wise subset corresponding to the given event space and time
-# e.g. get_spacetime(df, 'tests', 'census_tract', '1y')
 def get_spacetime(df, event, space, time):
     columns = filter(lambda c: c.startswith(space + '_' + event + '_' + time + '_'), df.columns)
     return df[columns]
@@ -384,3 +385,9 @@ def spacetime_difference(df, event, space, time1, time2):
     # prefix
     prefix_columns(df, space + '_' + event + '_' + time1 + '-' + time2 + '_')
     return df
+
+def aggregation_info(m):
+    module_name = m.__name__
+    table_name = module_name[module_name.rfind('.')+1:]
+    prefix = table_name.replace('_aggregated', '')
+    return 'output.' + table_name, prefix
