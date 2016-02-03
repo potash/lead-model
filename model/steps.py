@@ -23,7 +23,7 @@ def models():
                 train_years=train_years, inputs=model_data(), name='transform')
 
         estimator = step.Construct('sklearn.ensemble.RandomForestClassifier',
-            n_estimators=10, n_jobs=-1, name='estimator')
+            n_estimators=100, n_jobs=-1, name='estimator', balanced=True)
 
         y = model.FitPredict(inputs=[estimator, transform], name='y', target=True)
         m = model.PrintMetrics(metrics, inputs=[y], target=True)
