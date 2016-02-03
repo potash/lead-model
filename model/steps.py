@@ -1,0 +1,32 @@
+from drain import data, step, model
+import lead.model.data
+
+metrics = [
+    {'metric':'baseline'},
+    {'metric':'count'},
+    {'metric':'precision', 'k':100},
+    {'metric':'precision', 'k':200},
+    {'metric':'precision', 'k':500},
+    {'metric':'auc'},
+]
+
+def model_data():
+    d = lead.model.data.LeadData(month=1, day=1, year_min=2005, target=True)
+#    h = data.ToHDF(inputs=[d])
+     
+    return [d]
+
+def models():
+    steps = []
+    for train_years in range(1,5):
+        transform = lead.model.data.LeadTransform(month=1, day=1, year=2011, 
+                train_years=train_years, inputs=model_data(), name='transform')
+
+        estimator = step.Construct('sklearn.ensemble.RandomForestClassifier',
+            n_estimators=10, n_jobs=-1, name='estimator')
+
+        y = model.FitPredict(inputs=[estimator, transform], name='y', target=True)
+        m = model.PrintMetrics(metrics, inputs=[y], target=True)
+        steps.append(m)
+
+    return steps
