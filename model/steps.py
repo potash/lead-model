@@ -1,5 +1,6 @@
 from drain import data, step, model
 import lead.model.data
+from itertools import product
 
 metrics = [
     {'metric':'baseline'},
@@ -18,8 +19,8 @@ def model_data():
 
 def models():
     steps = []
-    for train_years in range(1,5):
-        transform = lead.model.data.LeadTransform(month=1, day=1, year=2011, 
+    for train_years, year in product(range(1,5), range(2011, 2013+1)):
+        transform = lead.model.data.LeadTransform(month=1, day=1, year=year, 
                 train_years=train_years, inputs=model_data(), name='transform')
 
         estimator = step.Construct('sklearn.ensemble.RandomForestClassifier',
