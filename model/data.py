@@ -24,7 +24,7 @@ class LeadData(Step):
 #        self.addresses = FromSQL('select * From output.addresses')
 
 #        self.inputs = [self.kids, self.kid_addresses, self.addresses] + aggregations.buildings()# + aggregations.assessor()
-        self.inputs = aggregations.buildings() + aggregations.tests() + aggregations.inspections() + aggregations.assessor()
+        self.inputs = aggregations.all()
 
     def run(self, *args, **kwargs):
         engine = util.create_engine()
@@ -64,10 +64,10 @@ class LeadTransform(Step):
             'census_tract_id', 'ward_id', 'community_area_id'}
 
     def __init__(self, month, day, year, train_years, 
-            train_min_max_sample_age = 3*365,
+            train_min_last_sample_age = 3*365,
             **kwargs):
         Step.__init__(self, month=month, day=day, year=year, train_years=train_years, 
-                train_min_max_sample_age=train_min_max_sample_age, **kwargs)
+                train_min_last_sample_age=train_min_last_sample_age, **kwargs)
 
     def run(self, X, aux, sample_dates):
         # TODO: move this into an HDFReader for efficiency
@@ -80,15 +80,19 @@ class LeadTransform(Step):
 
         X.set_index('date', append=True, inplace=True) # add date column to index
         aux.index = X.index
-        aux['age'] = (data.index_as_series(aux, 'date') - aux.date_of_birth)/util.day
 
-        # TODO: include people who are poisoned born and poisoned before a date
+        date = data.index_as_series(aux, 'date')
+        aux['age'] = (date - aux.date_of_birth)/util.day
+
+        # TODO: include people who are born and poisoned before a date
         # TODO: exclude them from test
-        train = data.index_as_series(X, 'date') < today
+        train = date < today
+        # don't include future addresses in training
+        train &= (aux.wic_min_date < today) | (aux.test_min_date < today)
         # subset to potential training kids
         max_sample_ages = censor_max_sample_ages(X[train].index.get_level_values('kid_id'), sample_dates, today)
 
-        kids_min_max_sample_age = max_sample_ages[(max_sample_ages > self.train_min_max_sample_age)].index
+        kids_min_max_sample_age = max_sample_ages[(max_sample_ages > self.train_min_last_sample_age)].index
         train &= \
             (data.index_as_series(X, 'kid_id').isin(kids_min_max_sample_age) |
             (aux.first_bll6_sample_date < today).fillna(False) )

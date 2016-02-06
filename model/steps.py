@@ -19,12 +19,12 @@ def model_data():
 
 def models():
     steps = []
-    for train_years, year in product(range(1,5), range(2011, 2013+1)):
+    for train_years, year in product([2,3], range(2011, 2013+1)):
         transform = lead.model.data.LeadTransform(month=1, day=1, year=year, 
                 train_years=train_years, inputs=model_data(), name='transform')
 
         estimator = step.Construct('sklearn.ensemble.RandomForestClassifier',
-            n_estimators=100, n_jobs=-1, name='estimator', balanced=True)
+            n_estimators=1000, criterion='entropy', n_jobs=-1, name='estimator', balanced=True)
 
         y = model.FitPredict(inputs=[estimator, transform], name='y', target=True)
         m = model.PrintMetrics(metrics, inputs=[y], target=True)
