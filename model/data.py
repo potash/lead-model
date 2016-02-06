@@ -64,21 +64,25 @@ class LeadTransform(Step):
             'census_tract_id', 'ward_id', 'community_area_id'}
 
     def __init__(self, month, day, year, train_years, 
-            train_min_last_sample_age = 3*365,
+            train_min_last_sample_age = 3*365, wic_sample_weight=1,
             **kwargs):
-        Step.__init__(self, month=month, day=day, year=year, train_years=train_years, 
-                train_min_last_sample_age=train_min_last_sample_age, **kwargs)
+        Step.__init__(self, month=month, day=day, year=year, 
+                train_years=train_years, 
+                train_min_last_sample_age=train_min_last_sample_age,
+                wic_sample_weight=wic_sample_weight, **kwargs)
 
     def run(self, X, aux, sample_dates):
         # TODO: move this into an HDFReader for efficiency
-        drop = aux.date_of_birth < util.timestamp(self.year-self.train_years-1, self.month, self.day)
+        drop = aux.date_of_birth < util.timestamp(
+                self.year-self.train_years-1, self.month, self.day)
         X.drop(X.index[drop], inplace=True)
         aux.drop(aux.index[drop], inplace=True)
 
         logging.info('Splitting train and test sets')
         today = util.timestamp(self.month, self.day, self.year)
 
-        X.set_index('date', append=True, inplace=True) # add date column to index
+        # add date column to index
+        X.set_index('date', append=True, inplace=True) 
         aux.index = X.index
 
         date = data.index_as_series(aux, 'date')
@@ -90,20 +94,24 @@ class LeadTransform(Step):
         # don't include future addresses in training
         train &= (aux.wic_min_date < today) | (aux.test_min_date < today)
         # subset to potential training kids
-        max_sample_ages = censor_max_sample_ages(X[train].index.get_level_values('kid_id'), sample_dates, today)
+        max_sample_ages = censor_max_sample_ages(
+                X[train].index.get_level_values('kid_id'), 
+                sample_dates, today)
 
-        kids_min_max_sample_age = max_sample_ages[(max_sample_ages > self.train_min_last_sample_age)].index
-        train &= \
-            (data.index_as_series(X, 'kid_id').isin(kids_min_max_sample_age) |
-            (aux.first_bll6_sample_date < today).fillna(False) )
+        kids_min_max_sample_age = max_sample_ages[
+                (max_sample_ages > self.train_min_last_sample_age)].index
+        train &= (
+                data.index_as_series(X, 'kid_id').isin(
+                    kids_min_max_sample_age) |
+                (aux.first_bll6_sample_date < today).fillna(False))
          
         test = data.index_as_series(X, 'date') == today
         aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test)
 
-        logging.info('Binarizing')
+        #logging.info('Binarizing')
         # binarize census tract
-        data.binarize(X, {'community_area_id'})
+        # data.binarize(X, {'community_area_id'})
     
         # set outcome variable, censored in training
         y = aux.first_bll6_sample_date.notnull().where(
@@ -112,7 +120,12 @@ class LeadTransform(Step):
         X = data.select_features(X, exclude=self.EXCLUDE)
         X = data.impute(X, train=train)
 
-        return {'X': X.astype(np.float32), 'y': y, 'train': train, 'test': test, 'aux': aux}
+        sample_weight = 1 + (
+                aux.wic_min_date.notnull() * self.wic_sample_weight)
+
+        return {'X': X.astype(np.float32), 'y': y, 
+                'train': train, 'test': test, 
+                'aux': aux, 'sample_weight': sample_weight}
 
 def censor_max_sample_ages(kids, sample_dates, today):
     # get max sample age for specified kids, censoring by today
