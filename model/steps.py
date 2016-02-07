@@ -12,7 +12,7 @@ metrics = [
 ]
 
 def model_data():
-    d = lead.model.data.LeadData(month=1, day=1, year_min=2005, target=True)
+    d = lead.model.data.LeadData(month=1, day=1, year_min=2007, target=True)
     return [d]
 
 def models():

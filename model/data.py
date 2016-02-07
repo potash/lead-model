@@ -1,18 +1,27 @@
 from drain.step import Step
 from drain import util, data
+from drain.data import FromSQL
 from lead.output import aggregations
 
 import pandas as pd
 import numpy as np
 import logging
 
+
+
 class LeadData(Step):
-    EXCLUDE = {'first_name', 'last_name', 'address_residential', 'address'}
-    AUX = { 'wic_min_date', 'test_min_date', 'address_count', 'date_of_birth',
-            'test_count', 'first_bll6_sample_date', 'first_bll10_sample_date', 
+    EXCLUDE = {'first_name', 'last_name', 'address_residential', 
+               'address'}
+
+    AUX = { 'wic_min_date', 'test_min_date', 'address_count', 
+            'date_of_birth', 'age', 'wic', 'test_count', 
+            'first_bll6_sample_date', 'first_bll10_sample_date', 
             'max_bll', 'first_sample_date', 'last_sample_date'}
-    PARSE_DATES = ['date_of_birth', 'test_min_date', 'wic_min_date', 'first_bll6_sample_date',
-            'first_bll10_sample_date', 'first_sample_date', 'last_sample_date', 'wic_min_date', 'test_min_date']
+
+    PARSE_DATES = ['date_of_birth', 'test_min_date', 'wic_min_date', 
+        'first_bll6_sample_date', 'first_bll10_sample_date', 
+        'first_sample_date', 'last_sample_date', 'wic_min_date', 
+        'test_min_date']
 
     def __init__(self, month, day, year_min=2008, **kwargs):
         Step.__init__(self, month=month, day=day, year_min=year_min, **kwargs)
@@ -24,23 +33,27 @@ class LeadData(Step):
 #        self.addresses = FromSQL('select * From output.addresses')
 
 #        self.inputs = [self.kids, self.kid_addresses, self.addresses] + aggregations.buildings()# + aggregations.assessor()
-        self.aggregations = aggregations.all()
-        self.inputs = self.aggregations
-
-    def run(self, *args, **kwargs):
-        engine = util.create_engine()
-
-        # Read data
-        # TODO: could make these separate FromSQL dependencies and join here
-        logging.info("Reading kids")
-        X = pd.read_sql("""
+        kid_addresses = FromSQL(query="""
 select * from output.kids join output.kid_addresses using (kid_id)
 join output.addresses using (address_id)
 where date_of_birth >= '{date_min}'
-        """.format(date_min='%s-%s-%s' % (self.year_min, self.month, self.day)), 
-            engine, parse_dates=self.PARSE_DATES)
+""".format(date_min='%s-%s-%s' % (self.year_min, self.month, self.day)), 
+                parse_dates=self.PARSE_DATES, target=True)
+
+        self.aggregations = aggregations.all()
+        self.inputs = [kid_addresses] + self.aggregations
+        self.input_mapping=['X']
+
+    def run(self, X, *args, **kwargs):
+        # Read data
+        # TODO: could make these separate FromSQL dependencies and join here
         
-        X['date'] = X.date_of_birth.apply(lambda t: util.date_ceil(t, self.month, self.day))
+        # Date stuff
+        X['date'] = X.date_of_birth.apply(lambda t: 
+                util.date_ceil(t, self.month, self.day))
+        X['age'] = (X.date - X.date_of_birth)/util.day
+        X['date_of_birth_days'] = X.date_of_birth.apply(util.date_to_days)
+        X['date_of_birth_month'] = X.date_of_birth.apply(lambda d: d.month)
 
         # join before setting index
         for aggregation in self.aggregations:
@@ -90,7 +103,6 @@ class LeadTransform(Step):
         aux.index = X.index
 
         date = data.index_as_series(aux, 'date')
-        aux['age'] = (date - aux.date_of_birth)/util.day
 
         # TODO: include people who are born and poisoned before a date
         # TODO: exclude them from test
