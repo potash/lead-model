@@ -18,7 +18,7 @@ def model_data():
 def models():
     steps = []
     for train_years, year, wic_sample_weight in product(
-            [2,3], range(2011, 2013+1), [1,2]):
+            [2,3], range(2011, 2013+1), [1]):
         transform = lead.model.data.LeadTransform(
                 month=1, day=1, year=year, 
                 train_years=train_years, 

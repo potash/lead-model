@@ -24,13 +24,15 @@ class LeadData(Step):
 #        self.addresses = FromSQL('select * From output.addresses')
 
 #        self.inputs = [self.kids, self.kid_addresses, self.addresses] + aggregations.buildings()# + aggregations.assessor()
-        self.inputs = aggregations.all()
+        self.aggregations = aggregations.all()
+        self.inputs = self.aggregations
 
     def run(self, *args, **kwargs):
         engine = util.create_engine()
 
         # Read data
         # TODO: could make these separate FromSQL dependencies and join here
+        logging.info("Reading kids")
         X = pd.read_sql("""
 select * from output.kids join output.kid_addresses using (kid_id)
 join output.addresses using (address_id)
@@ -41,7 +43,8 @@ where date_of_birth >= '{date_min}'
         X['date'] = X.date_of_birth.apply(lambda t: util.date_ceil(t, self.month, self.day))
 
         # join before setting index
-        for aggregation in self.inputs:
+        for aggregation in self.aggregations:
+            logging.info('Joining %s' % aggregation)
             X = aggregation.join(X)
 
         # Set index
@@ -60,8 +63,9 @@ from output.tests join output.kids using (kid_id)""", engine, parse_dates=['date
         return {'X':X, 'aux':aux, 'sample_dates':sample_dates}
 
 class LeadTransform(Step):
-    EXCLUDE = {'address_id', 'building_id', 'complex_id', 'census_block_id', 
-            'census_tract_id', 'ward_id', 'community_area_id'}
+    EXCLUDE = {'address_id', 'building_id', 'complex_id', 
+            'census_block_id', 'census_tract_id', 'ward_id', 
+            'community_area_id'}
 
     def __init__(self, month, day, year, train_years, 
             train_min_last_sample_age = 3*365, wic_sample_weight=1,
