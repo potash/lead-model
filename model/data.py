@@ -7,32 +7,23 @@ import pandas as pd
 import numpy as np
 import logging
 
-
-
 class LeadData(Step):
     EXCLUDE = {'first_name', 'last_name', 'address_residential', 
                'address'}
 
-    AUX = { 'wic_min_date', 'test_min_date', 'address_count', 
-            'date_of_birth', 'age', 'wic', 'test_count', 
-            'first_bll6_sample_date', 'first_bll10_sample_date', 
-            'max_bll', 'first_sample_date', 'last_sample_date'}
+    PARSE_DATES = ['date_of_birth', 'first_bll6_sample_date', 
+        'first_bll10_sample_date', 'first_sample_date', 
+        'last_sample_date', 'min_date', 'max_date', 'wic_min_date', 
+        'test_min_date', 'wic_max_date', 'test_max_date']
 
-    PARSE_DATES = ['date_of_birth', 'test_min_date', 'wic_min_date', 
-        'first_bll6_sample_date', 'first_bll10_sample_date', 
-        'first_sample_date', 'last_sample_date', 'wic_min_date', 
-        'test_min_date']
+    AUX = {'address_count', 'age', 'wic', 'test_count', 
+            'max_bll', 'mean_bll'}
+    AUX.update(PARSE_DATES)
+
 
     def __init__(self, month, day, year_min=2008, **kwargs):
         Step.__init__(self, month=month, day=day, year_min=year_min, **kwargs)
 
-#        self.kids = FromSQL('select * from output.kids', 
-#                parse_dates=self.PARSE_DATES['kids'])
-#        self.kid_addresses = FromSQL('select * from output.kid_addresses', 
-#                parse_dates=self.PARSE_DATES['kid_addresses'])
-#        self.addresses = FromSQL('select * From output.addresses')
-
-#        self.inputs = [self.kids, self.kid_addresses, self.addresses] + aggregations.buildings()# + aggregations.assessor()
         kid_addresses = FromSQL(query="""
 select * from output.kids join output.kid_addresses using (kid_id)
 join output.addresses using (address_id)
@@ -45,12 +36,13 @@ where date_of_birth >= '{date_min}'
         self.input_mapping=['X']
 
     def run(self, X, *args, **kwargs):
-        # Read data
-        # TODO: could make these separate FromSQL dependencies and join here
-        
         # Date stuff
-        X['date'] = X.date_of_birth.apply(lambda t: 
-                util.date_ceil(t, self.month, self.day))
+        # TODO: include people who are born and poisoned before a date
+        # TODO: exclude them from test
+        logging.info('dates')
+        X['date'] = X.date_of_birth.apply(
+                util.date_ceil(self.month, self.day))
+        logging.info('more_dates')
         X['age'] = (X.date - X.date_of_birth)/util.day
         X['date_of_birth_days'] = X.date_of_birth.apply(util.date_to_days)
         X['date_of_birth_month'] = X.date_of_birth.apply(lambda d: d.month)
@@ -69,6 +61,7 @@ where date_of_birth >= '{date_min}'
 
         # Sample dates used for training_min_max_sample_age in LeadTransform
         # TODO: could make this more efficient
+        engine = util.create_engine()
         sample_dates = pd.read_sql("""
 select kid_id, sample_date, date_of_birth
 from output.tests join output.kids using (kid_id)""", engine, parse_dates=['date_of_birth', 'sample_date'])
@@ -104,8 +97,6 @@ class LeadTransform(Step):
 
         date = data.index_as_series(aux, 'date')
 
-        # TODO: include people who are born and poisoned before a date
-        # TODO: exclude them from test
         train = date < today
         # don't include future addresses in training
         train &= (aux.wic_min_date < today) | (aux.test_min_date < today)
@@ -126,6 +117,7 @@ class LeadTransform(Step):
         X,train,test = data.train_test_subset(X, train, test)
 
         #logging.info('Binarizing')
+        # TODO: include gender, ethnicity, etc.
         # binarize census tract
         # data.binarize(X, {'community_area_id'})
     
@@ -138,6 +130,10 @@ class LeadTransform(Step):
 
         sample_weight = 1 + (
                 aux.wic_min_date.notnull() * self.wic_sample_weight)
+
+        c = data.non_numeric_columns(X)
+        if len(c) > 0:
+            logging.warning('Non-numeric columns: %s' % c)
 
         return {'X': X.astype(np.float32), 'y': y, 
                 'train': train, 'test': test, 
