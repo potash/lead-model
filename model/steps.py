@@ -13,36 +13,47 @@ metrics = [
     {'metric':'auc'},
 ]
 
+def forest():
+    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=500, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt')]
+
+def model_svm():
+    return mdoels(model.svms())
+
+def model_forests():
+    return models(model.forests(n_estimators=[500], balanced=[True]))
+
+def model_logits():
+    return models(model.logits())
+
 def model_data():
     d = lead.model.data.LeadData(month=1, day=1, year_min=2007, target=True)
     return [d]
 
-def models():
+def model_forest():
+    return models(forest())
+
+def train_min_last_sample_age():
+    return models(forest(), dict(train_min_last_sample_age=[None, 0, 365, 365*1.5, 365*2, 365*2.5, 365*3]))
+
+def models(estimators, transform_search = {}):
     steps = []
-    transform_search = dict(
+    transformd = dict(
         train_years = [3],
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [1],
+        train_min_last_sample_age=[365*2],
         train_non_wic = [True],
     )
-    estimator_search = dict(
-        n_estimators=[1000],
-    )
+    transformd.update(transform_search)
 
-    for transform_args, estimator_args in product(
-            dict_product(transform_search), 
-            dict_product(estimator_search)):
+    for transform_args, estimator in product(
+            dict_product(transformd), estimators):
+    
         transform = lead.model.transform.LeadTransform(
                 month=1, day=1, inputs=model_data(), 
                 name='transform',
                 **transform_args)
-
-        estimator = step.Construct(
-                'sklearn.ensemble.RandomForestClassifier',
-                criterion='entropy', n_jobs=-1, 
-                name='estimator', balanced=True,
-                **estimator_args)
 
         y = model.FitPredict(inputs=[estimator, transform], 
                 name='y', target=True)

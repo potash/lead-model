@@ -13,13 +13,15 @@ class LeadData(Step):
 
     PARSE_DATES = ['date_of_birth', 'first_bll6_sample_date', 
         'first_bll10_sample_date', 'first_sample_date', 
-        'last_sample_date', 'min_date', 'max_date', 'wic_min_date', 
-        'test_min_date', 'wic_max_date', 'test_max_date', 'wic_date']
+        'last_sample_date', 'address_min_date', 'address_max_date', 
+        'address_wic_min_date', 'address_test_min_date', 
+        'address_wic_max_date', 'address_test_max_date', 'wic_date']
 
-    AUX = {'address_count', 'wic_date', 'test_count', 
-            'max_bll', 'mean_bll'}
+    AUX = {'address_count', 'test_count', 
+        'first_bll6_address_id', 'first_sample_address_id', 
+        'max_bll', 'mean_bll'}
+
     AUX.update(PARSE_DATES)
-
 
     def __init__(self, month, day, year_min=2008, **kwargs):
         Step.__init__(self, month=month, day=day, year_min=year_min, **kwargs)
@@ -31,6 +33,8 @@ where date_of_birth >= '{date_min}'
 """.format(date_min='%s-%s-%s' % (self.year_min, self.month, self.day)), 
                 parse_dates=self.PARSE_DATES, tables=['output.kids', 'output.addresses'], target=True)
 
+        # TODO request aggregations of the right dates
+        # remember about date_floor for kids poisoned before 12 mo
         self.aggregations = aggregations.all()
         self.inputs = [kid_addresses] + self.aggregations
         self.input_mapping=['X']
@@ -42,7 +46,13 @@ where date_of_birth >= '{date_min}'
         logging.info('dates')
         X['date'] = X.date_of_birth.apply(
                 util.date_ceil(self.month, self.day))
-        logging.info('more_dates')
+        import pdb; pdb.set_trace()
+        
+        # if bll6 happens before dob.date_ceil() use date_floor instead
+        bll6_before_date = X.first_bll6_sample_date < X.date
+        X.loc[bll6_before_date, 'date'] =  X.loc[bll6_before_date, 
+                'first_bll6_sample_date'].apply(
+                    util.date_floor(self.month, self.day))
         X['age'] = (X.date - X.date_of_birth)/util.day
         X['date_of_birth_days'] = X.date_of_birth.apply(util.date_to_days)
         X['date_of_birth_month'] = X.date_of_birth.apply(lambda d: d.month)

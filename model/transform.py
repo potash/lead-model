@@ -13,7 +13,7 @@ class LeadTransform(Step):
             'community_area_id'}
 
     def __init__(self, month, day, year, train_years, 
-            train_min_last_sample_age = 3*365, 
+            train_min_last_sample_age = None, 
             train_non_wic = True,
             spacetime_normalize=False,
             wic_sample_weight=1, **kwargs):
@@ -44,20 +44,23 @@ class LeadTransform(Step):
             train &= aux.wic
 
         # don't include future addresses in training
-        train &= (aux.wic_min_date < today) | (aux.test_min_date < today)
+        train &= (aux.address_wic_min_date < today) | (aux.address_test_min_date < today)
         # subset to potential training kids
-        max_sample_ages = censor_max_sample_ages(
-                X[train].index.get_level_values('kid_id'), 
-                sample_dates, today)
-
-        kids_min_max_sample_age = max_sample_ages[
-                (max_sample_ages > self.train_min_last_sample_age)].index
-        train &= (
-                data.index_as_series(X, 'kid_id').isin(
-                    kids_min_max_sample_age) |
-                (aux.first_bll6_sample_date < today).fillna(False))
-         
+        if self.train_min_last_sample_age is not None:
+            max_sample_ages = censor_max_sample_ages(
+                    X[train].index.get_level_values('kid_id'), 
+                    sample_dates, today)
+            kids_min_max_sample_age = max_sample_ages[
+                    (max_sample_ages > self.train_min_last_sample_age)].index
+            train &= (
+                    data.index_as_series(X, 'kid_id').isin(
+                        kids_min_max_sample_age) |
+                    (aux.first_bll6_sample_date < today).fillna(False))
+        
+        # test set if born within past year (and haven't been poisoned yet)
+        # look at bll6_before_date in LeadData
         test = data.index_as_series(X, 'date') == today
+
         aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test)
 
@@ -86,7 +89,7 @@ class LeadTransform(Step):
         X = data.impute(X, train=train)
 
         sample_weight = 1 + (
-                aux.wic_min_date.notnull() * self.wic_sample_weight)
+                aux.address_wic_min_date.notnull() * self.wic_sample_weight)
 
         c = data.non_numeric_columns(X)
         if len(c) > 0:
