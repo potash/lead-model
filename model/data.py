@@ -54,14 +54,13 @@ where date_of_birth >= '{date_min}'
                 'first_bll6_sample_date'].apply(
                     util.date_floor(self.month, self.day))
 
-        import pdb; pdb.set_trace()
         # backfill missing acs data
         census_tract_id = acs.census_tract_id # store tracts
         acs = acs.groupby('census_tract_id').transform(
                 lambda d: d.sort_values('year', ascending=True)\
                     .fillna(method='backfill'))
         acs['census_tract_id'] = census_tract_id
-        acs.rename(columns={'year':'acs_year'}, inplace=True)
+        data.prefix_columns(acs, 'acs_', ignore=['census_tract_id'])
 
         # >= 2014, use acs2014, <= 2010 use acs2010
         # TODO use use 2009 after adding 2000 census tract ids!
