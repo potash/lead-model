@@ -12,13 +12,20 @@ class LeadTransform(Step):
             'census_block_id', 'census_tract_id', 'ward_id', 
             'community_area_id'}
 
-    def __init__(self, month, day, year, train_years, 
-            train_min_last_sample_age = None, 
+    def __init__(self, month, day, year, outcome, train_years, 
+            outcome_here = False, # when true, outcome &= address_min_test_date.notnull()
+            outcome_min_age = None, # when not None, outcome &= last_sample_age > outcome_min_age
+            outcome_min_age_here = None,
+            train_min_last_sample_age = None,
+            train_min_age_today = None,
             train_non_wic = True,
             spacetime_normalize=False,
             wic_sample_weight=1, **kwargs):
         Step.__init__(self, month=month, day=day, year=year, 
+                outcome=outcome, outcome_min_age=outcome_min_age, 
+                outcome_here=outcome_here, outcome_min_age_here=outcome_min_age_here,
                 train_years=train_years, train_non_wic=train_non_wic,
+                train_min_age_today=train_min_age_today,
                 train_min_last_sample_age=train_min_last_sample_age,
                 spacetime_normalize=spacetime_normalize,
                 wic_sample_weight=wic_sample_weight, **kwargs)
@@ -41,7 +48,7 @@ class LeadTransform(Step):
 
         train = date < today
         if not self.train_non_wic:
-            train &= aux.wic
+            train &= (aux.wic_date < today)
 
         # don't include future addresses in training
         train &= (aux.address_wic_min_date < today) | (aux.address_test_min_date < today)
@@ -51,11 +58,14 @@ class LeadTransform(Step):
                     X[train].index.get_level_values('kid_id'), 
                     sample_dates, today)
             kids_min_max_sample_age = max_sample_ages[
-                    (max_sample_ages > self.train_min_last_sample_age)].index
+                    (max_sample_ages >= self.train_min_last_sample_age)].index
             train &= (
                     data.index_as_series(X, 'kid_id').isin(
                         kids_min_max_sample_age) |
                     (aux.first_bll6_sample_date < today).fillna(False))
+        if self.train_min_age_today is not None:
+            train &= ( ((today - aux.date_of_birth)/util.day) >= self.train_min_age_today)
+            
         
         # test set if born within past year (and haven't been poisoned yet)
         # look at bll6_before_date in LeadData
@@ -70,8 +80,22 @@ class LeadTransform(Step):
         # data.binarize(X, {'community_area_id'})
     
         # set outcome variable, censored in training
-        y = aux.first_bll6_sample_date.notnull().where(
-            test | (aux.first_bll6_sample_date < today), False)
+        if self.outcome == 'bll6':
+            outcome_date = aux.first_bll6_sample_date
+        elif self.outcome == 'test':
+            outcome_date = aux.first_sample_date
+        else:
+            raise ValueError('Invalid outcome: %s' % self.outcome)
+
+        y = outcome_date.notnull().where(
+            test | (outcome_date < today), False)
+        if self.outcome_here:
+            y &= aux.address_test_min_date.notnull()
+        if self.outcome_min_age is not None:
+            y &= ((aux.last_sample_date - aux.date_of_birth)/util.day) > self.outcome_min_age
+        if self.outcome_min_age is not None:
+            # TODO: censor this for the training set!
+            y &= ((aux.address_test_max_date - aux.date_of_birth)/util.day) > self.outcome_min_age_here
 
         X = data.select_features(X, exclude=self.EXCLUDE)
 
