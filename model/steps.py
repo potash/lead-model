@@ -45,9 +45,11 @@ def bll6_models(estimators, transform_search = {}):
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [1],
-        train_min_last_sample_age=[365*2],
-        train_non_wic = [True],
-        outcome = ['bll6']
+        train_query = ['last_sample_age > 365*2'],
+        outcome_expr = ['max_bll >= 6']
+#        train_min_last_sample_age=[365*2],
+#        train_non_wic = [True],
+#        outcome = ['bll6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)
@@ -58,11 +60,13 @@ def test_models(estimators, transform_search = {}):
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [1],
-        train_non_wic = [False],
-        outcome = ['test'],
-        outcome_here = [True],
-        outcome_min_age_here = [30*22],
-        train_min_age_today = [365*2], # wait until they're two to determine whether they've been tested
+        train_query = ['wic and age > 365*2'],
+        outcome_expr = ['address_test_max_age > 30*22']
+        #train_non_wic = [False],
+        #train_min_age_today = [365*2], # wait until they're two to determine whether they've been tested
+        #outcome = ['test'],
+        #outcome_here = [True],
+        #outcome_min_age_here = [30*22],
     )
     transformd.update(transform_search)
     return models(estimators, transformd)

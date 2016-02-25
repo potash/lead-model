@@ -2,7 +2,11 @@ from drain.step import Step
 from drain import util, data
 from drain.aggregation import SpacetimeAggregation
 
+from lead.output.kids import revise_kid_addresses
+from lead.model.data import LeadData
+
 from sklearn import preprocessing
+from datetime import date
 import pandas as pd
 import numpy as np
 import logging
@@ -12,33 +16,49 @@ class LeadTransform(Step):
             'census_block_id', 'census_tract_id', 'ward_id', 
             'community_area_id'}
 
-    def __init__(self, month, day, year, outcome, train_years, 
-            outcome_here = False, # when true, outcome &= address_min_test_date.notnull()
-            outcome_min_age = None, # when not None, outcome &= last_sample_age > outcome_min_age
-            outcome_min_age_here = None,
-            train_min_last_sample_age = None,
-            train_min_age_today = None,
-            train_non_wic = True,
+    def __init__(self, month, day, year, outcome_expr, train_years, 
+            train_query=None,
             spacetime_normalize=False,
             wic_sample_weight=1, **kwargs):
         Step.__init__(self, month=month, day=day, year=year, 
-                outcome=outcome, outcome_min_age=outcome_min_age, 
-                outcome_here=outcome_here, outcome_min_age_here=outcome_min_age_here,
-                train_years=train_years, train_non_wic=train_non_wic,
-                train_min_age_today=train_min_age_today,
-                train_min_last_sample_age=train_min_last_sample_age,
+                outcome_expr=outcome_expr,
+                train_years=train_years,
+                train_query=train_query,
                 spacetime_normalize=spacetime_normalize,
                 wic_sample_weight=wic_sample_weight, **kwargs)
 
-    def run(self, X, aux, sample_dates):
+        lead_data = LeadData(month=month, day=day, 
+                target=True)
+        today = date(year, month, day)
+        kid_addresses_revised = revise_kid_addresses(date=today, test=True)
+
+        self.inputs = [lead_data, kid_addresses_revised]
+
+    def run(self, kid_addresses_revised, X, aux):
+        today = util.timestamp(self.month, self.day, self.year)
+
         # TODO: move this into an HDFReader for efficiency
         drop = aux.date_of_birth < util.timestamp(
                 self.year-self.train_years-1, self.month, self.day)
         X.drop(X.index[drop], inplace=True)
         aux.drop(aux.index[drop], inplace=True)
 
+        # align kid_addresses_revised with the index of X and aux
+        revised = X[['date']].merge(kid_addresses_revised, how='left', 
+                left_index=True, right_on=['kid_id', 'address_id'])
+        revised.set_index(['kid_id', 'address_id', 'date'],
+                inplace=True)
+        revised['last_sample_age'] = (revised.last_sample_date - 
+                 revised.date_of_birth)/util.day
+        revised['wic'] = revised.wic_date.notnull()
+
+        date = data.index_as_series(revised, 'date')
+        revised['today_age'] = (today - revised.date_of_birth)/util.day
+        revised['age'] = (date - revised.date_of_birth)/util.day
+        revised['last_sample_here_age'] = (revised.address_test_max_date - 
+                 revised.date_of_birth)/util.day
+
         logging.info('Splitting train and test sets')
-        today = util.timestamp(self.month, self.day, self.year)
 
         # add date column to index
         X.set_index('date', append=True, inplace=True) 
@@ -47,29 +67,11 @@ class LeadTransform(Step):
         date = data.index_as_series(aux, 'date')
 
         train = date < today
-        if not self.train_non_wic:
-            train &= (aux.wic_date < today)
-
         # don't include future addresses in training
-        train &= (aux.address_wic_min_date < today) | (aux.address_test_min_date < today)
-        # subset to potential training kids
-        if self.train_min_last_sample_age is not None:
-            max_sample_ages = censor_max_sample_ages(
-                    X[train].index.get_level_values('kid_id'), 
-                    sample_dates, today)
-            kids_min_max_sample_age = max_sample_ages[
-                    (max_sample_ages >= self.train_min_last_sample_age)].index
-            train &= (
-                    data.index_as_series(X, 'kid_id').isin(
-                        kids_min_max_sample_age) |
-                    (aux.first_bll6_sample_date < today).fillna(False))
-        if self.train_min_age_today is not None:
-            train &= ( ((today - aux.date_of_birth)/util.day) >= self.train_min_age_today)
-            
-        
-        # test set if born within past year (and haven't been poisoned yet)
-        # look at bll6_before_date in LeadData
-        test = data.index_as_series(X, 'date') == today
+        train &= (aux.address_min_date < today)
+        train &= train.index.isin(
+                revised.query(self.train_query).index)
+        test = date == today
 
         aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test)
@@ -79,24 +81,7 @@ class LeadTransform(Step):
         # binarize census tract
         # data.binarize(X, {'community_area_id'})
     
-        # set outcome variable, censored in training
-        if self.outcome == 'bll6':
-            outcome_date = aux.first_bll6_sample_date
-        elif self.outcome == 'test':
-            outcome_date = aux.first_sample_date
-        else:
-            raise ValueError('Invalid outcome: %s' % self.outcome)
-
-        y = outcome_date.notnull().where(
-            test | (outcome_date < today), False)
-        if self.outcome_here:
-            y &= aux.address_test_min_date.notnull()
-        if self.outcome_min_age is not None:
-            y &= ((aux.last_sample_date - aux.date_of_birth)/util.day) > self.outcome_min_age
-        if self.outcome_min_age is not None:
-            # TODO: censor this for the training set!
-            y &= ((aux.address_test_max_date - aux.date_of_birth)/util.day) > self.outcome_min_age_here
-
+        y = revised.loc[X.index].eval(self.outcome_expr)
         X = data.select_features(X, exclude=self.EXCLUDE)
 
         if self.spacetime_normalize:
@@ -122,13 +107,3 @@ class LeadTransform(Step):
         return {'X': X.astype(np.float32), 'y': y, 
                 'train': train, 'test': test, 
                 'aux': aux, 'sample_weight': sample_weight}
-
-def censor_max_sample_ages(kids, sample_dates, today):
-    # get max sample age for specified kids, censoring by today
-    train_sample_dates = sample_dates.kid_id.isin(kids)
-    sample_dates.drop(sample_dates.index[~train_sample_dates], inplace=True)
-    # calculate age
-    sample_dates['age'] = (sample_dates.sample_date - sample_dates.date_of_birth)/util.day
-    # find max sample age for each kid
-    max_sample_ages = sample_dates.groupby('kid_id')['age'].max()
-    return max_sample_ages

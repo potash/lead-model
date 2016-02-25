@@ -1,7 +1,8 @@
 from drain.step import Step
 from drain import util, data
-from drain.data import FromSQL
+from drain.data import FromSQL, Merge
 from lead.output import aggregations
+from lead.output.kids import KIDS_PARSE_DATES, KID_ADDRESSES_PARSE_DATES
 
 import pandas as pd
 import numpy as np
@@ -17,21 +18,27 @@ class LeadData(Step):
         'address_wic_min_date', 'address_test_min_date', 
         'address_wic_max_date', 'address_test_max_date', 'wic_date']
 
-    AUX = {'address_count', 'test_count', 
+    AUX = {'address_count', 'test_count', 'address_max_bll', 'address_mean_bll',
         'first_bll6_address_id', 'first_sample_address_id', 
         'max_bll', 'mean_bll'}
 
     AUX.update(PARSE_DATES)
 
     def __init__(self, month, day, year_min=2008, **kwargs):
-        Step.__init__(self, month=month, day=day, year_min=year_min, **kwargs)
+        Step.__init__(self, month=month, day=day, year_min=year_min, 
+                **kwargs)
 
-        kid_addresses = FromSQL(query="""
-select * from output.kids join output.kid_addresses using (kid_id)
-join output.addresses using (address_id)
-where date_of_birth >= '{date_min}'
-""".format(date_min='%s-%s-%s' % (self.year_min, self.month, self.day)), 
-                parse_dates=self.PARSE_DATES, tables=['output.kids', 'output.addresses'], target=True)
+        kid_addresses = Merge(on='kid_id', inputs=[
+                FromSQL(table='output.kid_addresses', 
+                    parse_dates=KID_ADDRESSES_PARSE_DATES, target=True), 
+                FromSQL(table='output.kids', 
+                    parse_dates=KIDS_PARSE_DATES, 
+                    to_str=['first_name','last_name'], target=True)])
+
+        kid_addresses = Merge(on='address_id', 
+                inputs=[kid_addresses, FromSQL(table='output.addresses',
+                target=True)])
+
         acs = FromSQL(table='output.acs', target=True)
 
         # TODO request aggregations of the right dates
@@ -41,9 +48,9 @@ where date_of_birth >= '{date_min}'
         self.input_mapping=['X', 'acs']
 
     def run(self, X, acs, *args, **kwargs):
+        min_date = util.timestamp(self.year_min, self.month, self.day)
+        X.drop(X.index[X.date_of_birth < min_date], inplace=True)
         # Date stuff
-        # TODO: include people who are born and poisoned before a date
-        # TODO: exclude them from test
         logging.info('dates')
         X['date'] = X.date_of_birth.apply(
                 util.date_ceil(self.month, self.day))
@@ -91,8 +98,4 @@ where date_of_birth >= '{date_min}'
         # Sample dates used for training_min_max_sample_age in LeadTransform
         # TODO: could make this more efficient
         engine = util.create_engine()
-        sample_dates = pd.read_sql("""
-select kid_id, sample_date, date_of_birth
-from output.tests join output.kids using (kid_id)""", engine, parse_dates=['date_of_birth', 'sample_date'])
-        
-        return {'X':X, 'aux':aux, 'sample_dates':sample_dates}
+        return {'X':X, 'aux':aux}
