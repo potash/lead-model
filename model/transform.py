@@ -30,48 +30,35 @@ class LeadTransform(Step):
         lead_data = LeadData(month=month, day=day, 
                 target=True)
         today = date(year, month, day)
-        kid_addresses_revised = revise_kid_addresses(date=today, test=True)
+        kid_addresses_revised = revise_kid_addresses(date=today)
 
         self.inputs = [lead_data, kid_addresses_revised]
 
-    def run(self, kid_addresses_revised, X, aux):
+    def run(self, revised, X, aux):
         today = util.timestamp(self.month, self.day, self.year)
 
+        X.set_index(['kid_id', 'address_id', 'date'], inplace=True) 
+        aux.set_index(['kid_id', 'address_id', 'date'], inplace=True)
+
         # TODO: move this into an HDFReader for efficiency
-        drop = aux.date_of_birth < util.timestamp(
-                self.year-self.train_years-1, self.month, self.day)
-        X.drop(X.index[drop], inplace=True)
-        aux.drop(aux.index[drop], inplace=True)
-
-        # align kid_addresses_revised with the index of X and aux
-        revised = X[['date']].merge(kid_addresses_revised, how='left', 
-                left_index=True, right_on=['kid_id', 'address_id'])
-        revised.set_index(['kid_id', 'address_id', 'date'],
-                inplace=True)
-        revised['last_sample_age'] = (revised.last_sample_date - 
-                 revised.date_of_birth)/util.day
-        revised['wic'] = revised.wic_date.notnull()
-
-        date = data.index_as_series(revised, 'date')
-        revised['today_age'] = (today - revised.date_of_birth)/util.day
-        revised['age'] = (date - revised.date_of_birth)/util.day
-        revised['last_sample_here_age'] = (revised.address_test_max_date - 
-                 revised.date_of_birth)/util.day
+        min_date = util.timestamp(self.year-self.train_years-1, self.month, self.day)
+        for df in (X, aux):
+            df.drop(df.index[data.index_as_series(df, 'date') < min_date], inplace=True)
 
         logging.info('Splitting train and test sets')
-
         # add date column to index
-        X.set_index('date', append=True, inplace=True) 
-        aux.index = X.index
 
-        date = data.index_as_series(aux, 'date')
-
-        train = date < today
         # don't include future addresses in training
-        train &= (aux.address_min_date < today)
-        train &= train.index.isin(
-                revised.query(self.train_query).index)
+        date = data.index_as_series(aux, 'date')
+        train = (date < today) & (aux.address_min_date < today)
         test = date == today
+
+        revised = revise_helper(revised=revised, aux=aux, 
+                train=train, test=test, today=today)
+        if self.train_query is not None:        
+            train &= train.index.isin(
+                    revised.query(self.train_query).index)
+        # align kid_addresses_revised with the index of X and aux
 
         aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test)
@@ -80,7 +67,6 @@ class LeadTransform(Step):
         # TODO: include gender, ethnicity, etc.
         # binarize census tract
         # data.binarize(X, {'community_area_id'})
-    
         y = revised.loc[X.index].eval(self.outcome_expr)
         X = data.select_features(X, exclude=self.EXCLUDE)
 
@@ -97,8 +83,7 @@ class LeadTransform(Step):
 
         X = data.impute(X, train=train)
 
-        sample_weight = 1 + (
-                aux.address_wic_min_date.notnull() * self.wic_sample_weight)
+        sample_weight = 1 + (revised.wic * self.wic_sample_weight)
 
         c = data.non_numeric_columns(X)
         if len(c) > 0:
@@ -107,3 +92,25 @@ class LeadTransform(Step):
         return {'X': X.astype(np.float32), 'y': y, 
                 'train': train, 'test': test, 
                 'aux': aux, 'sample_weight': sample_weight}
+
+def revise_helper(revised, aux, train, test, today):
+    """
+    given revised and unrevised kid_addresses (aux), merge the unrevised for the test set
+    with the revised for training
+    """
+    revised = aux[[]][train].reset_index().merge(revised, how='left', 
+            on=['kid_id', 'address_id'])
+    revised.set_index(['kid_id', 'address_id', 'date'], inplace=True)
+    revised = pd.concat((revised, aux[test]))
+
+    revised['last_sample_age'] = (revised.last_sample_date - 
+             revised.date_of_birth)/util.day
+    revised['wic'] = revised.wic_date.notnull()
+    revised['today_age'] = (today - revised.date_of_birth)/util.day
+    revised['address_test_max_age'] = (revised.address_test_max_date - 
+             revised.date_of_birth)/util.day
+
+    date = data.index_as_series(revised, 'date')
+    revised['age'] = (date - revised.date_of_birth)/util.day
+
+    return revised
