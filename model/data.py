@@ -44,10 +44,11 @@ class LeadData(Step):
                 'first_bll6_sample_date'].apply(
                     util.date_floor(self.month, self.day))
 
-        X = aux[['kid_id', 'date', 'address_id']]
+        columns = aux.columns
         addresses.drop(['address'], axis=1, inplace=True)
-        X = X.merge(addresses, on='address_id')
-        aux.drop(aux.index[aux.address_id.isnull()], inplace=True)
+        aux = aux.merge(addresses, on='address_id')
+        X = aux[['kid_id', 'date'] + list(addresses.columns)]
+        aux = aux[columns]
 
         # backfill missing acs data
         census_tract_id = acs.census_tract_id # store tracts

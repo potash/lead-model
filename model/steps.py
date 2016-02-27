@@ -41,7 +41,8 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        train_years = [1,2,3,4,5],
+        #train_years = [3,4,5],
+        train_years = [3],
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0],
