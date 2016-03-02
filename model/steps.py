@@ -26,23 +26,21 @@ def model_forests():
 def model_logits():
     return bll6_models(model.logits())
 
-def model_data():
-    d = lead.model.data.LeadData(month=1, day=1, year_min=2007, target=True)
-    return [d]
-
 def bll6_forest():
     return bll6_models(forest())
 
 def test_forest():
     return test_models(forest())
 
+def product_forest():
+    return product_models(forest())
+
 def train_min_last_sample_age():
     return bll6_models(forest(), dict(train_min_last_sample_age=[None, 0, 365, 365*1.5, 365*2, 365*2.5, 365*3]))
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        #train_years = [3,4,5],
-        train_years = [3],
+        train_years = [3,4,5],
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0],
@@ -55,29 +53,48 @@ def bll6_models(estimators, transform_search = {}):
 def test_models(estimators, transform_search = {}):
     transformd = dict(
         train_years = [3,4,5],
+        #train_years = [3],
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0,1],
+        #wic_sample_weight = [0],
+        #train_query = ['wic and today_age > 365*2'],
         train_query = ['wic and today_age > 365*2', 'today_age > 365*2'],
         outcome_expr = ['address_test_max_age > 30*22 or address_max_bll >= 6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)
 
+def product_models(estimators, transform_search = {}):
+    steps = []
+    for year in range(2011, 2013+1):
+        transform_search['year'] = [year]
+        ts = test_models(estimators, transform_search)
+        bs = bll6_models(estimators, transform_search)
+        for t in ts:
+            t.__name__ = 'estimator_t'
+            t.get_input('transform').__name__ = 'transform_t'
+
+        for t,b in product(ts, bs):
+            
+            p = model.PredictProduct(inputs=[t,b], 
+                    inputs_mapping=['test', 'bll6'], target=True)
+            steps.append(p)
+            
+    return steps
+
 def models(estimators, transform_search):
     steps = []
-    md = model_data()
     for transform_args, estimator in product(
             dict_product(transform_search), estimators):
     
         transform = lead.model.transform.LeadTransform(
-                month=1, day=1, inputs=md, 
+                month=1, day=1, 
                 name='transform',
                 **transform_args)
 
         y = model.FitPredict(inputs=[estimator, transform], 
                 name='y', target=True)
-        m = model.PrintMetrics(metrics, inputs=[y], target=True)
-        steps.append(m)
+        steps.append(y)
 
     return steps

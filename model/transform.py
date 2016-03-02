@@ -27,7 +27,7 @@ class LeadTransform(Step):
                 spacetime_normalize=spacetime_normalize,
                 wic_sample_weight=wic_sample_weight, **kwargs)
 
-        lead_data = LeadData(month=month, day=day, 
+        lead_data = LeadData(month=month, day=day, year_min=2007,
                 target=True)
         today = date(year, month, day)
         kid_addresses_revised = revise_kid_addresses(date=today)
@@ -41,7 +41,7 @@ class LeadTransform(Step):
         aux.set_index(['kid_id', 'address_id', 'date'], inplace=True)
 
         # TODO: move this into an HDFReader for efficiency
-        min_date = util.timestamp(self.year-self.train_years-1, self.month, self.day)
+        min_date = util.timestamp(self.year-self.train_years, self.month, self.day)
         for df in (X, aux):
             df.drop(df.index[data.index_as_series(df, 'date') < min_date], inplace=True)
 
