@@ -76,7 +76,12 @@ class LeadData(Step):
             logging.info('Joining %s' % aggregation)
             X = aggregation.join(X)
 
-        # Sample dates used for training_min_max_sample_age in LeadTransform
-        # TODO: could make this more efficient
-        engine = util.create_engine()
-        return {'X':X, 'aux':aux}
+        for c in ('employment_status', 'occupation', 'assistance', 'language'):
+            c = 'wic_enroll_kid_all_%s' % c
+            X[c].replace(0, np.nan, inplace=True) # TODO: handle this better in Aggregation fillna
+            data.binarize_set(X, c)
+
+        X.set_index(['kid_id', 'address_id', 'date'], inplace=True)
+        aux.set_index(['kid_id', 'address_id', 'date'], inplace=True)
+
+        return {'X':X.astype(np.float32), 'aux':aux}

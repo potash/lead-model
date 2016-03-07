@@ -40,7 +40,7 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        train_years = [3,4,5],
+        train_years = [3,4,5,6,7,],
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0],
@@ -52,14 +52,14 @@ def bll6_models(estimators, transform_search = {}):
 
 def test_models(estimators, transform_search = {}):
     transformd = dict(
-        train_years = [3,4,5],
+        train_years = [3,4,5,6,7],
         #train_years = [3],
         year = range(2011, 2013+1),
         spacetime_normalize = [False],
-        wic_sample_weight = [0,1],
-        #wic_sample_weight = [0],
-        #train_query = ['wic and today_age > 365*2'],
-        train_query = ['wic and today_age > 365*2', 'today_age > 365*2'],
+        #wic_sample_weight = [0,1],
+        wic_sample_weight = [0],
+        train_query = ['wic and today_age > 365*2'],
+        #train_query = ['wic and today_age > 365*2', 'today_age > 365*2'],
         outcome_expr = ['address_test_max_age > 30*22 or address_max_bll >= 6']
     )
     transformd.update(transform_search)
