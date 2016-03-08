@@ -29,8 +29,12 @@ class LeadTransform(Step):
                 wic_sample_weight=wic_sample_weight, 
                 exclude=exclude, include=include, **kwargs)
 
-        lead_data = LeadData(month=month, day=day, year_min=2002, year_max=2015, target=True)
+        year_min = 2003
+        year_max = 2016
+        if not year_min <= year <= year_max:
+            raise ValueError('Invalid year: %s' % year)
 
+        lead_data = LeadData(month=month, day=day, year_min=2003, year_max=2016, target=True)
         today = date(year, month, day)
         kid_addresses_revised = revise_kid_addresses(date=today)
 
