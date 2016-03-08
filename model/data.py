@@ -1,55 +1,43 @@
 from drain.step import Step
 from drain import util, data
 from drain.data import FromSQL, Merge
+from drain.aggregation import AggregationJoin
+
 from lead.output import aggregations
 from lead.output.kids import KIDS_PARSE_DATES, KID_ADDRESSES_PARSE_DATES
+from lead.model.left import LeadLeft
 
+from datetime import date
 import pandas as pd
 import numpy as np
 import logging
 
 class LeadData(Step):
-    def __init__(self, month, day, year_min=2008, **kwargs):
-        Step.__init__(self, month=month, day=day, year_min=year_min, 
+    def __init__(self, month, day, year_min, year_max, **kwargs):
+        Step.__init__(self, month=month, day=day, year_min=year_min, year_max=year_max,
                 **kwargs)
 
-        kid_addresses = Merge(on='kid_id', inputs=[
-                FromSQL(table='output.kid_addresses', 
-                    parse_dates=KID_ADDRESSES_PARSE_DATES, target=True), 
-                FromSQL(table='output.kids', 
-                    parse_dates=KIDS_PARSE_DATES, 
-                    to_str=['first_name','last_name'], target=True)])
-
-        addresses = FromSQL(table='output.addresses', target=True)
-
         acs = FromSQL(table='output.acs', target=True)
+        left = LeadLeft(month=month, day=day, year_min=year_min, target=True)
 
-        # TODO request aggregations of the right dates
-        # remember about date_floor for kids poisoned before 12 mo
-        self.aggregations = aggregations.all()
-        self.inputs = [kid_addresses, acs, addresses] + self.aggregations
-        self.input_mapping=['aux', 'acs', 'addresses']
+        dates = (date(y, month, day) for y in range(year_min, year_max))
+        self.aggregations = [AggregationJoin(target=True, inputs=[left, a], 
+                inputs_mapping=[{'aux':None}, None]) for a in aggregations.all(dates)]
 
-    def run(self, aux, acs, addresses, *args, **kwargs):
-        min_date = util.timestamp(self.year_min, self.month, self.day)
-        aux.drop(aux.index[aux.date_of_birth < min_date], inplace=True)
-        # Date stuff
-        logging.info('dates')
-        aux['date'] = aux.date_of_birth.apply(
-                util.date_ceil(self.month, self.day))
-        
-        # if bll6 happens before dob.date_ceil() use date_floor instead
-        bll6_before_date = aux.first_bll6_sample_date < aux.date
-        aux.loc[bll6_before_date, 'date'] =  aux.loc[bll6_before_date, 
-                'first_bll6_sample_date'].apply(
-                    util.date_floor(self.month, self.day))
+        self.inputs = [acs, left] + self.aggregations
+        self.inputs_mapping=['acs', {}] + [None]*len(self.aggregations)
 
-        columns = aux.columns
-        addresses.drop(['address'], axis=1, inplace=True)
-        aux = aux.merge(addresses, on='address_id')
-        X = aux[['kid_id', 'date'] + list(addresses.columns)]
-        aux = aux[columns]
+    def run(self, acs, left, aux):
+        X = left
 
+        # join all aggregations
+        for aggregation in self.aggregations:
+            logging.info('Joining %s' % aggregation.inputs[1].__class__.__name__)
+            a = aggregation.get_result()
+            a = a[a.columns.difference(left.columns)]
+            X = X.join(a)
+
+        logging.info('Joining ACS')
         # backfill missing acs data
         census_tract_id = acs.census_tract_id # store tracts
         acs = acs.groupby('census_tract_id').transform(
@@ -66,22 +54,27 @@ class LeadData(Step):
                 on=['acs_year', 'census_tract_id'])
         X.drop(['acs_year'], axis=1, inplace=True)
 
+        logging.info('Dates')
         X['age'] = (aux.date - aux.date_of_birth)/util.day
         X['date_of_birth_days'] = aux.date_of_birth.apply(util.date_to_days)
         X['date_of_birth_month'] = aux.date_of_birth.apply(lambda d: d.month)
         X['wic'] = (aux.wic_date < aux.date).fillna(False)
 
-        # join before setting index
-        for aggregation in self.aggregations:
-            logging.info('Joining %s' % aggregation)
-            X = aggregation.join(X)
-
-        for c in ('employment_status', 'occupation', 'assistance', 'language'):
-            c = 'wic_enroll_kid_all_%s' % c
-            X[c].replace(0, np.nan, inplace=True) # TODO: handle this better in Aggregation fillna
-            data.binarize_set(X, c)
+        logging.info('Binarizing sets')
+        binarize = {'enroll': ['employment_status', 'occupation', 'assistance', 'language', 'clinic'],
+                    'prenatal': ['clinic', 'service'],
+                    'birth': ['clinic', 'complication', 'disposition', 'place_type']}
+        for table, columns in binarize.iteritems():
+            for column in columns:
+                c = 'wic_%s_kid_all_%s' % (table, column)
+                X[c].replace(0, np.nan, inplace=True) # TODO: handle this better in Aggregation fillna
+                data.binarize_set(X, c)
 
         X.set_index(['kid_id', 'address_id', 'date'], inplace=True)
         aux.set_index(['kid_id', 'address_id', 'date'], inplace=True)
+
+        c = data.non_numeric_columns(X)
+        if len(c) > 0:
+            logging.warning('Non-numeric columns: %s' % c)
 
         return {'X':X.astype(np.float32), 'aux':aux}

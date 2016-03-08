@@ -27,12 +27,17 @@ def model_logits():
     return bll6_models(model.logits())
 
 def bll6_forest():
+    return bll6_models(forest(), {'train_years': [5], 'train_query': [None], 
+            'outcome_expr':['address_max_bll >= 6']})
+
+def bll6_forests():
     return bll6_models(forest())
 
-def test_forest():
+def test_forests():
     return test_models(forest())
 
-def product_forest():
+    return test_models(forest())
+def product_forests():
     return product_models(forest())
 
 def train_min_last_sample_age():
@@ -40,12 +45,12 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        train_years = [3,4,5,6,7,],
-        year = range(2011, 2013+1),
+        train_years = [4,5,6,7],
+        year = range(2010, 2013+1)+[2015],
         spacetime_normalize = [False],
         wic_sample_weight = [0],
         train_query = [None, 'last_sample_age > 365*2'],
-        outcome_expr = ['max_bll >= 6']
+        outcome_expr = ['max_bll >= 6', 'address_max_bll >= 6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)
@@ -54,12 +59,11 @@ def test_models(estimators, transform_search = {}):
     transformd = dict(
         train_years = [3,4,5,6,7],
         #train_years = [3],
-        year = range(2011, 2013+1),
+        year = range(2011, 2014+1),
         spacetime_normalize = [False],
         #wic_sample_weight = [0,1],
         wic_sample_weight = [0],
         train_query = ['wic and today_age > 365*2'],
-        #train_query = ['wic and today_age > 365*2', 'today_age > 365*2'],
         outcome_expr = ['address_test_max_age > 30*22 or address_max_bll >= 6']
     )
     transformd.update(transform_search)
@@ -67,7 +71,7 @@ def test_models(estimators, transform_search = {}):
 
 def product_models(estimators, transform_search = {}):
     steps = []
-    for year in range(2011, 2013+1):
+    for year in range(2011, 2014+1):
         transform_search['year'] = [year]
         ts = test_models(estimators, transform_search)
         bs = bll6_models(estimators, transform_search)
@@ -89,7 +93,7 @@ def models(estimators, transform_search):
             dict_product(transform_search), estimators):
     
         transform = lead.model.transform.LeadTransform(
-                month=1, day=1, 
+                month=12, day=1, 
                 name='transform',
                 **transform_args)
 
