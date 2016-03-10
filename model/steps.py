@@ -2,6 +2,7 @@ from drain import data, step, model
 from drain.util import dict_product
 import lead.model.data
 import lead.model.transform
+from lead.output import aggregations
 from itertools import product
 
 wic_query = 'address_wic_min_date < date'
@@ -27,7 +28,10 @@ def model_logits():
     return bll6_models(model.logits())
 
 def bll6_forest():
-    return bll6_models(forest(), {'year': range(2011, 2016+1), 'train_years': [5], 'train_query': [None, 'last_sample_age > 365*2'], 
+    return bll6_models(forest(), {
+            'year': range(2011, 2016+1), 
+            'train_years': [6], 
+            'train_query': [None], 
             'outcome_expr':['address_max_bll >= 6']})
 
 def bll6_forests():
@@ -46,10 +50,10 @@ def train_min_last_sample_age():
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
         train_years = [4,5,6,7],
-        year = range(2011, 2014+1)+[2016],
+        year = range(2010, 2014+1)+[2016],
         spacetime_normalize = [False],
         wic_sample_weight = [0],
-        train_query = [None, 'last_sample_age > 365*2'],
+        train_query = [None],
         outcome_expr = ['max_bll >= 6', 'address_max_bll >= 6']
     )
     transformd.update(transform_search)
@@ -93,7 +97,8 @@ def models(estimators, transform_search):
             dict_product(transform_search), estimators):
     
         transform = lead.model.transform.LeadTransform(
-                month=2, day=25, 
+                month=1, day=25,
+                aggregations = aggregations.args,
                 name='transform',
                 **transform_args)
 

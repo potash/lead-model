@@ -18,12 +18,14 @@ class LeadTransform(Step):
             'community_area_id']
 
     def __init__(self, month, day, year, outcome_expr, train_years, 
+            aggregations,
             train_query=None,
             spacetime_normalize=False,
             wic_sample_weight=1, exclude=[], include=[], **kwargs):
         Step.__init__(self, month=month, day=day, year=year, 
                 outcome_expr=outcome_expr,
                 train_years=train_years,
+                aggregations=aggregations,
                 train_query=train_query,
                 spacetime_normalize=spacetime_normalize,
                 wic_sample_weight=wic_sample_weight, 
@@ -67,10 +69,12 @@ class LeadTransform(Step):
         #aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test, drop=False)
 
+        aggregations = self.inputs[0].aggregations # dictionary of Aggregations
+        for a, args in self.aggregations.iteritems():
+            X = aggregations[a].select(X, args)
+
         #logging.info('Binarizing')
         # TODO: include gender, ethnicity, etc.
-        # binarize census tract
-        # data.binarize(X, {'community_area_id'})
         y = revised.loc[X.index].eval(self.outcome_expr)
         X = data.select_features(X, exclude=self.EXCLUDE + self.exclude, 
                 include=self.include)

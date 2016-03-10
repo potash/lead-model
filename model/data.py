@@ -21,19 +21,20 @@ class LeadData(Step):
         left = LeadLeft(month=month, day=day, year_min=year_min, target=True)
 
         dates = (date(y, month, day) for y in range(year_min, year_max+1))
-        self.aggregations = [AggregationJoin(target=True, inputs=[left, a], 
-                inputs_mapping=[{'aux':None}, None]) for a in aggregations.all(dates)]
+        self.aggregations = aggregations.all_dict(dates)
+        self.aggregation_joins = [AggregationJoin(target=True, inputs=[left, a], 
+                inputs_mapping=[{'aux':None}, None]) for a in self.aggregations.values()]
 
-        self.inputs = [acs, left] + self.aggregations
+        self.inputs = [acs, left] + self.aggregation_joins
         self.inputs_mapping=['acs', {}] + [None]*len(self.aggregations)
 
     def run(self, acs, left, aux):
         X = left
 
         # join all aggregations
-        for aggregation in self.aggregations:
-            logging.info('Joining %s' % aggregation.inputs[1].__class__.__name__)
-            a = aggregation.get_result()
+        for aj in self.aggregation_joins:
+            logging.info('Joining %s' % aj.inputs[1].__class__.__name__)
+            a = aj.get_result()
             a = a[a.columns.difference(left.columns)]
             X = X.join(a)
 
