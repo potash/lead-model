@@ -20,7 +20,7 @@ class LeadData(Step):
         acs = FromSQL(table='output.acs', target=True)
         left = LeadLeft(month=month, day=day, year_min=year_min, target=True)
 
-        dates = (date(y, month, day) for y in range(year_min, year_max+1))
+        dates = tuple((date(y, month, day) for y in range(year_min, year_max+1)))
         self.aggregations = aggregations.all_dict(dates)
         self.aggregation_joins = [AggregationJoin(target=True, inputs=[left, a], 
                 inputs_mapping=[{'aux':None}, None]) for a in self.aggregations.values()]

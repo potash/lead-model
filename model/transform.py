@@ -11,6 +11,11 @@ from datetime import date
 import pandas as pd
 import numpy as np
 import logging
+from repoze.lru import lru_cache
+
+@lru_cache(maxsize=10)
+def lead_data(month, day):
+    return LeadData(month=month, day=day, year_min=2003, year_max=2016, target=True)
 
 class LeadTransform(Step):
     EXCLUDE = ['address_id', 'building_id', 'complex_id', 
@@ -36,11 +41,9 @@ class LeadTransform(Step):
         if not year_min <= year <= year_max:
             raise ValueError('Invalid year: %s' % year)
 
-        lead_data = LeadData(month=month, day=day, year_min=2003, year_max=2016, target=True)
         today = date(year, month, day)
         kid_addresses_revised = revise_kid_addresses(date=today)
-
-        self.inputs = [lead_data, kid_addresses_revised]
+        self.inputs = [lead_data(month, day), kid_addresses_revised]
 
     def run(self, revised, X, aux):
         today = util.timestamp(self.year, self.month, self.day)

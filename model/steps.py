@@ -32,11 +32,37 @@ def bll6_forest():
             'year': range(2011, 2016+1), 
             'train_years': [6], 
             'train_query': [None], 
+            'aggregations': aggregations.args,
             'outcome_expr':['address_max_bll >= 6']})
 
 def bll6_forests():
     return bll6_models(forest())
 
+def bll6_aggregations():
+    args = aggregations.args
+    args_search = [args]
+    for name, a in args.iteritems():
+        if isinstance(a, dict):
+            for space, deltas in a.iteritems():
+                for i in range(len(deltas)):
+                    copy = dict(args)
+                    copy[name] = dict(args[name])
+                    copy[name][space] = deltas[:i]
+                    args_search.append(copy)
+        else:
+            for i in range(len(a)):
+                copy = dict(args)
+                copy[name] = a[:i]
+                args_search.append(copy)
+    print len(args_search)
+
+    return  bll6_models(forest(), {
+            'year': range(2012, 2014),
+            'train_years': [6],
+            'train_query': [None],
+            'aggregations': args_search,
+            'outcome_expr':['address_max_bll >= 6']})
+                    
 def test_forests():
     return test_models(forest())
 
@@ -53,6 +79,7 @@ def bll6_models(estimators, transform_search = {}):
         year = range(2010, 2014+1)+[2016],
         spacetime_normalize = [False],
         wic_sample_weight = [0],
+        aggregations = aggregations.args,
         train_query = [None],
         outcome_expr = ['max_bll >= 6', 'address_max_bll >= 6']
     )
@@ -98,7 +125,6 @@ def models(estimators, transform_search):
     
         transform = lead.model.transform.LeadTransform(
                 month=1, day=25,
-                aggregations = aggregations.args,
                 name='transform',
                 **transform_args)
 
