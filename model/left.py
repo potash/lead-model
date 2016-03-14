@@ -38,9 +38,10 @@ class LeadLeft(Step):
                     util.date_floor(self.month, self.day))
 
         columns = aux.columns
-        addresses.drop(['address'], axis=1, inplace=True)
         aux = aux.merge(addresses, on='address_id')
-        left = aux[['kid_id', 'date'] + list(addresses.columns)]
-        aux = aux[columns]
+
+        left_columns = ['kid_id', 'date'] + list(addresses.columns)
+        left_columns.remove('address')
+        left = aux[left_columns]
 
         return {'left':left, 'aux':aux}

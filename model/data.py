@@ -58,8 +58,8 @@ class LeadData(Step):
         logging.info('Dates')
         X['age'] = (aux.date - aux.date_of_birth)/util.day
         X['date_of_birth_days'] = aux.date_of_birth.apply(util.date_to_days)
-        X['date_of_birth_month'] = aux.date_of_birth.apply(lambda d: d.month)
-        X['wic'] = (aux.wic_date < aux.date).fillna(False)
+        X['date_of_birth_month'] = aux.date_of_birth.dt.month
+        X['wic'] = (aux.first_wic_date < aux.date).fillna(False)
 
         logging.info('Binarizing sets')
         binarize = {'enroll': ['employment_status', 'occupation', 'assistance', 'language', 'clinic'],

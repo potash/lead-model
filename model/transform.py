@@ -118,7 +118,7 @@ def revise_helper(revised, aux, train, test, today):
 
     revised['last_sample_age'] = (revised.last_sample_date - 
              revised.date_of_birth)/util.day
-    revised['wic'] = revised.wic_date.notnull()
+    revised['wic'] = revised.first_wic_date.notnull()
     revised['today_age'] = (today - revised.date_of_birth)/util.day
     revised['address_test_max_age'] = (revised.address_test_max_date - 
              revised.date_of_birth)/util.day
