@@ -70,11 +70,11 @@ class LeadTransform(Step):
 
         aux = aux[(train | test)]
         #aux.drop(aux.index[~(train | test)], inplace=True)
-        X,train,test = data.train_test_subset(X, train, test, drop=False)
+        X,train,test = data.train_test_subset(X, train, test, drop=True)
 
         aggregations = self.inputs[0].aggregations # dictionary of Aggregations
         for a, args in self.aggregations.iteritems():
-            X = aggregations[a].select(X, args)
+            X = aggregations[a].select(X, args, inplace=True)
 
         #logging.info('Binarizing')
         # TODO: include gender, ethnicity, etc.

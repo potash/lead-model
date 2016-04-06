@@ -1,4 +1,4 @@
-from drain import data, step, model
+from drain import data, step, model, util
 from drain.util import dict_product
 import lead.model.data
 import lead.model.transform
@@ -28,12 +28,45 @@ def model_logits():
     return bll6_models(model.logits())
 
 def bll6_forest():
+    args = dict(aggregations.args)
+    return bll6_models(forest())
+
+def bll6_forest_no_complex():
+    args = dict(aggregations.args)
+    for name, indexes in args.iteritems():
+        if isinstance(indexes, dict):
+            args[name] = {k:v for k,v in indexes.iteritems() if k != 'complex'}
+
     return bll6_models(forest(), {
-            'year': range(2011, 2016+1), 
-            'train_years': [6], 
-            'train_query': [None], 
-            'aggregations': aggregations.args,
-            'outcome_expr':['address_max_bll >= 6']})
+            'aggregations': args,
+    })
+
+def bll6_forest_no_tract():
+    args = dict(aggregations.args)
+    args['kids'] = util.dict_subset(args['kids'], ['address', 'complex', 'block'])
+    args['tests'] = util.dict_subset(args['tests'], ['address', 'complex', 'block'])
+
+    return bll6_models(forest(), {
+            'aggregations': args,
+    })
+
+def bll6_complex():
+    args = dict(aggregations.args)
+    args['kids'] = {'kid':['all'], 'complex':['1y']}
+    args['tests'] = {'kid':['all'], 'complex':['1y']}
+
+    return bll6_models(forest(), {
+            'aggregations': args,
+    })
+
+def bll6_kids_complex_1y():
+    args = dict(aggregations.args)
+    for k in args:
+        if isinstance(args[k], dict):
+            args[k] = {}
+    args['kids'] = {'kid':['all'], 'complex':['1y']}
+
+    return bll6_models(forest(), {'aggregations': args})
 
 def bll6_forests():
     return bll6_models(forest())
@@ -58,10 +91,8 @@ def bll6_aggregations():
 
     return  bll6_models(forest(), {
             'year': range(2012, 2014),
-            'train_years': [6],
-            'train_query': [None],
             'aggregations': args_search,
-            'outcome_expr':['address_max_bll >= 6']})
+    })
                     
 def test_forests():
     return test_models(forest())
@@ -75,13 +106,13 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        train_years = [4,5,6,7],
+        train_years = [6],
         year = range(2010, 2014+1)+[2016],
         spacetime_normalize = [False],
         wic_sample_weight = [0],
         aggregations = aggregations.args,
         train_query = [None],
-        outcome_expr = ['max_bll >= 6', 'address_max_bll >= 6']
+        outcome_expr = ['address_max_bll >= 6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)

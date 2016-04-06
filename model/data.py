@@ -67,7 +67,7 @@ class LeadData(Step):
                     'birth': ['clinic', 'complication', 'disposition', 'place_type']}
         for table, columns in binarize.iteritems():
             for column in columns:
-                c = 'wic_%s_kid_all_%s' % (table, column)
+                c = 'wic%s_kid_all_%s' % (table, column)
                 X[c].replace(0, np.nan, inplace=True) # TODO: handle this better in Aggregation fillna
                 data.binarize_set(X, c)
 
