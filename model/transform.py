@@ -68,15 +68,17 @@ class LeadTransform(Step):
                     revised.query(self.train_query).index)
         # align kid_addresses_revised with the index of X and aux
 
-        aux = aux[(train | test)]
-        #aux.drop(aux.index[~(train | test)], inplace=True)
+        #aux = aux[(train | test)]
+        aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test, drop=True)
 
         aggregations = self.inputs[0].aggregations # dictionary of Aggregations
         for a, args in self.aggregations.iteritems():
             X = aggregations[a].select(X, args, inplace=True)
 
-        #logging.info('Binarizing')
+        logging.info('Binarizing')
+        X = data.binarize(X, ['community_area_id', 'ward_id'], astype=np.float32)
+        
         # TODO: include gender, ethnicity, etc.
         y = revised.loc[X.index].eval(self.outcome_expr)
         X = data.select_features(X, exclude=self.EXCLUDE + self.exclude, 

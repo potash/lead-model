@@ -160,7 +160,7 @@ def models(estimators, transform_search):
                 **transform_args)
 
         y = model.FitPredict(inputs=[estimator, transform], 
-                name='y', target=True)
+                name='y', target=True, return_estimator=True)
         steps.append(y)
 
     return steps
