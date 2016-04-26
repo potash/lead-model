@@ -2,10 +2,10 @@ create temp table letters as (
 with
 
 -- addresses with kids under 1
-addresses_under1 as (select address_id from output.kid_addresses join output.kids using (kid_id) where first_wic_date is not null and date_of_birth >= (NOW() - interval '1 year')),
+addresses_under1 as (select address_id from output.kid_addresses join output.kids using (kid_id) where first_wic_date is not null and date_of_birth >= ('2016-04-26' - interval '1 year')),
 
 -- all kids between 1 and 2
-kids1to2 as (select kid_id, date_of_birth from output.kids where first_wic_date is not null and date_of_birth between (NOW() - interval '2 year') and (NOW() - interval '1 years')),
+kids1to2 as (select kid_id, date_of_birth from output.kids where first_wic_date is not null and date_of_birth between ('2016-04-26' - interval '2 year') and ('2016-04-26' - interval '1 year')),
 
 -- exclude kids sharing address with kids under 1
 kids1to2_exclude as (select kid_id from kids1to2 join output.kid_addresses using (kid_id) join addresses_under1 using (address_id)),

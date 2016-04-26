@@ -107,7 +107,7 @@ def train_min_last_sample_age():
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
         train_years = [6],
-        year = range(2010, 2014+1)+[2016],
+        year = range(2010, 2015+1)+[2016],
         spacetime_normalize = [False],
         wic_sample_weight = [0],
         aggregations = aggregations.args,
