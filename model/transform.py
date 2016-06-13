@@ -11,11 +11,11 @@ from datetime import date
 import pandas as pd
 import numpy as np
 import logging
-from repoze.lru import lru_cache
+from drain.util import lru_cache
 
 @lru_cache(maxsize=10)
-def lead_data(month, day):
-    return LeadData(month=month, day=day, year_min=2003, year_max=2016, target=True)
+def lead_data(month, day, wic_lag):
+    return LeadData(month=month, day=day, year_min=2003, year_max=2016, wic_lag=wic_lag, target=True)
 
 class LeadTransform(Step):
     EXCLUDE = ['address_id', 'building_id', 'complex_id', 
@@ -24,6 +24,7 @@ class LeadTransform(Step):
 
     def __init__(self, month, day, year, outcome_expr, train_years, 
             aggregations,
+            wic_lag=None,
             train_query=None,
             spacetime_normalize=False,
             wic_sample_weight=1, exclude=[], include=[], **kwargs):
@@ -31,6 +32,7 @@ class LeadTransform(Step):
                 outcome_expr=outcome_expr,
                 train_years=train_years,
                 aggregations=aggregations,
+                wic_lag=wic_lag,
                 train_query=train_query,
                 spacetime_normalize=spacetime_normalize,
                 wic_sample_weight=wic_sample_weight, 
@@ -43,7 +45,7 @@ class LeadTransform(Step):
 
         today = date(year, month, day)
         kid_addresses_revised = revise_kid_addresses(date=today)
-        self.inputs = [lead_data(month, day), kid_addresses_revised]
+        self.inputs = [lead_data(month, day, wic_lag), kid_addresses_revised]
 
     def run(self, revised, X, aux):
         today = util.timestamp(self.year, self.month, self.day)

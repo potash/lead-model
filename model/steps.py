@@ -5,16 +5,6 @@ import lead.model.transform
 from lead.output import aggregations
 from itertools import product
 
-wic_query = 'address_wic_min_date < date'
-metrics = [
-    {'metric':'baseline', 'query':wic_query},
-    {'metric':'count', 'query':wic_query},
-    {'metric':'precision', 'k':100, 'query':wic_query},
-    {'metric':'precision', 'k':200, 'query':wic_query},
-    {'metric':'precision', 'k':500, 'query':wic_query},
-    {'metric':'auc', 'query':wic_query},
-]
-
 def forest():
     return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=500, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt')]
 
@@ -27,9 +17,25 @@ def model_forests():
 def model_logits():
     return bll6_models(model.logits())
 
+# annual, quarterly, and monthly random forest models
+def bll6_forest_lag6m():
+    return bll6_models(forest(), {'month':[1,4,7,10], 'wic_lag':'6m'})
+
 def bll6_forest():
-    args = dict(aggregations.args)
     return bll6_models(forest())
+
+def bll6_forest_quarterly():
+    return bll6_models(forest(), 
+        {'month':[1,4,7,10], 'year':range(2010,2014+1)})
+
+def bll6_forest_monthly():
+    return bll6_models(forest(), 
+        {'month':range(1,13), 'year':range(2010,2014+1)})
+
+# exclude the kids_wic features (for testing effect of lagged wic data)
+def bll6_forest_quarterly_no_kids_wic():
+    return bll6_models(forest(), 
+            {'month':[1,3,6,9], 'exclude':[['kids_.*_wic_.*']]})
 
 def bll6_forest_no_complex():
     args = dict(aggregations.args)
@@ -87,7 +93,7 @@ def bll6_aggregations():
                 copy = dict(args)
                 copy[name] = a[:i]
                 args_search.append(copy)
-    print len(args_search)
+    print(len(args_search))
 
     return  bll6_models(forest(), {
             'year': range(2012, 2014),
@@ -106,8 +112,11 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
+        # default day is january 25
+        month = 1,
+        day = 25,
         train_years = [6],
-        year = range(2010, 2015+1)+[2016],
+        year = range(2010, 2014+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0],
         aggregations = aggregations.args,
@@ -119,6 +128,8 @@ def bll6_models(estimators, transform_search = {}):
 
 def test_models(estimators, transform_search = {}):
     transformd = dict(
+        month = 1,
+        day = 25,
         train_years = [3,4,5,6,7],
         #train_years = [3],
         year = range(2011, 2014+1),
@@ -133,7 +144,7 @@ def test_models(estimators, transform_search = {}):
 
 def product_models(estimators, transform_search = {}):
     steps = []
-    for year in range(2011, 2016+1):
+    for year in range(2011, 2014+1):
         transform_search['year'] = [year]
         ts = test_models(estimators, transform_search)
         bs = bll6_models(estimators, transform_search)
@@ -155,12 +166,16 @@ def models(estimators, transform_search):
             dict_product(transform_search), estimators):
     
         transform = lead.model.transform.LeadTransform(
-                month=1, day=25,
-                name='transform',
-                **transform_args)
+                name='transform', **transform_args)
 
-        y = model.FitPredict(inputs=[estimator, transform], 
-                name='y', target=True, return_estimator=True)
+        fit = model.Fit(inputs=[estimator, transform], 
+                name='fit', target=False, return_estimator=True)
+
+        y = model.Predict(inputs=[fit, transform], 
+                name='predict', 
+                return_feature_importances=True, 
+                target=True)
+
         steps.append(y)
 
     return steps

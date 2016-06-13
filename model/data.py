@@ -1,7 +1,7 @@
 from drain.step import Step
 from drain import util, data
 from drain.data import FromSQL, Merge
-from drain.aggregation import AggregationJoin
+from drain.aggregation import SpacetimeAggregationJoin
 
 from lead.output import aggregations
 from lead.output.kids import KIDS_PARSE_DATES, KID_ADDRESSES_PARSE_DATES
@@ -13,17 +13,23 @@ import numpy as np
 import logging
 
 class LeadData(Step):
-    def __init__(self, month, day, year_min, year_max, **kwargs):
-        Step.__init__(self, month=month, day=day, year_min=year_min, year_max=year_max,
+    def __init__(self, month, day, year_min, year_max, wic_lag=None, **kwargs):
+        Step.__init__(self, month=month, day=day, 
+                year_min=year_min, year_max=year_max,
+                wic_lag=wic_lag,
                 **kwargs)
 
         acs = FromSQL(table='output.acs', target=True)
         left = LeadLeft(month=month, day=day, year_min=year_min, target=True)
 
-        dates = tuple((date(y, month, day) for y in range(year_min, year_max+1)))
-        self.aggregations = aggregations.all_dict(dates)
-        self.aggregation_joins = [AggregationJoin(target=True, inputs=[left, a], 
-                inputs_mapping=[{'aux':None}, None]) for a in self.aggregations.values()]
+        dates = tuple((date(y, month, day) 
+                for y in range(year_min, year_max+1)))
+        self.aggregations = aggregations.all_dict(dates, wic_lag)
+        self.aggregation_joins = [
+                SpacetimeAggregationJoin(target=True, inputs=[left, a], 
+                lag = wic_lag if name.startswith('wic') else None,
+                inputs_mapping=[{'aux':None}, 'aggregation']) 
+            for name, a in self.aggregations.iteritems()]
 
         self.inputs = [acs, left] + self.aggregation_joins
         self.inputs_mapping=['acs', {}] + [None]*len(self.aggregations)
@@ -57,7 +63,7 @@ class LeadData(Step):
 
         logging.info('Dates')
         X['age'] = (aux.date - aux.date_of_birth)/util.day
-        X['date_of_birth_days'] = aux.date_of_birth.apply(util.date_to_days)
+        X['date_of_birth_days'] = util.date_to_days(aux.date_of_birth)
         X['date_of_birth_month'] = aux.date_of_birth.dt.month
         X['wic'] = (aux.first_wic_date < aux.date).fillna(False)
 
