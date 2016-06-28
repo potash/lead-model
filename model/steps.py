@@ -24,6 +24,11 @@ def bll6_forest_lag6m():
 def bll6_forest():
     return bll6_models(forest())
 
+def bll6_forest_today():
+    p = bll6_models(forest(), {'year':2016})
+    p[0].named_steps['fit']._target = True
+    return p
+
 def bll6_forest_quarterly():
     return bll6_models(forest(), 
         {'month':[1,4,7,10], 'year':range(2010,2014+1)})
@@ -113,8 +118,8 @@ def train_min_last_sample_age():
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
         # default day is january 25
-        month = 1,
-        day = 25,
+        month = 6,
+        day = 13,
         train_years = [6],
         year = range(2010, 2014+1),
         spacetime_normalize = [False],
