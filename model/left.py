@@ -25,6 +25,7 @@ class LeadLeft(Step):
 
     def run(self, aux, addresses):
         min_date = util.timestamp(self.year_min, self.month, self.day)
+        aux.dropna(subset=['date_of_birth'], inplace=True)
         aux.drop(aux.index[aux.date_of_birth < min_date], inplace=True)
         # Date stuff
         logging.info('dates')
