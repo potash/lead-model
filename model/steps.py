@@ -6,13 +6,13 @@ from lead.output import aggregations
 from itertools import product
 
 def forest():
-    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=500, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt')]
+    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=500, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
 
 def model_svm():
     return mdoels(model.svms())
 
 def model_forests():
-    return bll6_models(model.forests(n_estimators=[500], balanced=[True]))
+    return bll6_models(model.forests(n_estimators=[500], balanced=[True], random_state=0))
 
 def model_logits():
     return bll6_models(model.logits())
