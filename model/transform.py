@@ -121,14 +121,29 @@ def revise_helper(revised, aux, train, test, today):
     revised.set_index(['kid_id', 'address_id', 'date'], inplace=True)
     revised = pd.concat((revised, aux[test]))
 
-    revised['last_sample_age'] = (revised.last_sample_date - 
-             revised.date_of_birth)/util.day
-    revised['wic'] = revised.first_wic_date.notnull()
+    augment(revised)
     revised['today_age'] = (today - revised.date_of_birth)/util.day
-    revised['address_test_max_age'] = (revised.address_test_max_date - 
-             revised.date_of_birth)/util.day
-
-    date = data.index_as_series(revised, 'date')
-    revised['age'] = (date - revised.date_of_birth)/util.day
 
     return revised
+
+def augment(y):
+    """
+    augment the aux matrix with variables that are useful for train and test queries
+    """
+    y['age'] = (data.index_as_series(y, 'date') - y.date_of_birth) / util.day
+    y['last_sample_age'] = (y.last_sample_date - y.date_of_birth) / util.day
+    y['first_sample_age'] = (y.first_sample_date - y.date_of_birth) / util.day
+    y['address_test_max_age'] = (y.address_test_max_date - y.date_of_birth) / util.day
+    y['first_bll6_sample_age'] = (y.first_bll6_sample_date - y.date_of_birth) / util.day
+    y['wic'] = y.first_wic_date.notnull()
+
+    y['true6'] = y.max_bll >= 6
+    y['true5'] = y.max_bll >= 5
+    y['true4'] = y.max_bll >= 4
+
+    # bll6 or tested after age about age 2
+    y['true6_2y'] = y.true6.where((y.max_bll >= 6) | (y.last_sample_age > 365*1.9))
+    # bll6 or tested at this address after about age 2
+    y['true6_2y_here'] = y.true6.where((y.max_bll >= 6) | (y.address_test_max_age > 365*1.9))
+    # bll6 at this address or tested at this address after about age 2
+    y['true6_here_2y_here'] = y.true6.where((y.address_max_bll >= 6) | (y.address_test_max_age > 365*1.9))
