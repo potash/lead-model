@@ -7,14 +7,14 @@ with highest_risk as (
 
 wic_address_ids as (
     select kid_id, address_id,
-        wic_infant_ogc_fids is not null as address_wic_infant,
-        wic_mother_ogc_fids is not null as address_wic_mother,
+        ka.wic_infant_ogc_fids is not null as address_wic_infant,
+        ka.wic_mother_ogc_fids is not null as address_wic_mother,
         p.address_test_min_date is null as address_test,
-        unnest(coalesce(wic_infant_ogc_fids || wic_mother_ogc_fids, 
+        unnest(coalesce(ka.wic_infant_ogc_fids || ka.wic_mother_ogc_fids, 
                 '{NULL}'::integer[])) ogc_fid,
         highest_risk.address_id is not null as address_primary
     from predictions p
-    join output.kid_addresses using (kid_id, address_id)
+    join output.kid_addresses ka using (kid_id, address_id)
     left join highest_risk using (kid_id, address_id)
 )
 
@@ -53,10 +53,11 @@ group by kid_id, address_id, address
 create temp table wic_kids as (
     with kids as (
         select distinct on (kid_id) kid_id, score, 
-            address_id, first_name, last_name, date_of_birth
+            address_id, first_name, last_name, date_of_birth, max_bll, test_count, last_sample_date
         from predictions
-        where first_wic_date is not null and
-            date_trunc('month', date_of_birth) = '2015-07-01'
+        where first_wic_date is not null 
+            and date_of_birth 
+            between '2015-10-01' and '2016-03-31'
         order by kid_id, score desc),
     -- get patient ids for kid
     part_id_is as (
@@ -68,28 +69,45 @@ create temp table wic_kids as (
     select * from kids join part_id_is using (kid_id)
 );
 
--- select top 80 for risk group
+do $$
+    DECLARE RISK_COUNT int := 200;
+    DECLARE BASE_COUNT int := 0;
+    DECLARE RANDOM_SEED double precision := 0;
+BEGIN
+-- select risk group
 create temp table pilot01_risk as (
     select *, false as inspection
-    from wic_kids order by score desc limit 80
+    -- order by kid_id too in case there are score ties
+    from wic_kids order by score desc, kid_id asc
+    limit RISK_COUNT
 );
 
--- set random half to receive inspection
-select setseed(0);
-update pilot01_risk set inspection = true where kid_id in (select kid_id from pilot01_risk order by random() limit 50);
+-- set random half of addresses to receive inspection
+PERFORM setseed(RANDOM_SEED);
+update pilot01_risk set inspection = true 
+where address_id in (
+    select address_id from pilot01_risk 
+    order by random() limit RISK_COUNT/2
+);
 
 
 -- select 20 for base group
-select setseed(0);
+PERFORM setseed(RANDOM_SEED);
 create temp table pilot01_base as (
     select *, false as inspection from wic_kids
     where kid_id not in (select kid_id from pilot01_risk)
-    order by random() limit 20
+    order by random() limit BASE_COUNT
 );
 
 -- set random half to receive inspection
-select setseed(0);
-update pilot01_base set inspection = true where kid_id in (select kid_id from pilot01_base order by random() limit 10);
+PERFORM setseed(RANDOM_SEED);
+update pilot01_base set inspection = true 
+where address_id in (
+    select address_id from pilot01_base 
+    order by random() limit BASE_COUNT/2
+);
+
+end $$;
 
 drop table if exists pilot01;
 create table pilot01 as
@@ -97,7 +115,7 @@ create table pilot01 as
     (select *, false as risk from pilot01_base));
 -- copy concatenated to csv
 
-\copy pilot01 to data/pilot/01.csv with csv header;
+\copy pilot01 to data/pilot/02.csv with csv header;
 
 drop table if exists pilot01_contact;
 create table pilot01_contact as (
@@ -105,4 +123,4 @@ create table pilot01_contact as (
     from pilot01 join wic_contact using (kid_id)
 );
 
-\copy pilot01_contact to data/pilot/01_contact.csv with csv header;
+\copy pilot01_contact to data/pilot/02_contact.csv with csv header;
