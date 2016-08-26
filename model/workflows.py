@@ -12,7 +12,7 @@ def model_svm():
     return mdoels(model.svms())
 
 def model_forests():
-    return bll6_models(model.forests(n_estimators=[500], balanced=[True], random_state=0))
+    return bll6_models(model.forests(n_estimators=[800], balanced=[True], random_state=0))
 
 def model_logits():
     return bll6_models(model.logits())
@@ -24,10 +24,25 @@ def bll6_forest_lag6m():
 def bll6_forest():
     return bll6_models(forest())
 
+def bll6_forest_less_tract():
+    args = dict(aggregations.args)
+    for k in args:
+        if k in ('tests', 'inspections', 'events', 'permits', 'kids'):
+            args[k] = dict(**args[k])
+            args[k]['block'] = ['3y']
+            args[k]['tract'] = ['1y']
+    return bll6_models(forest(), {'aggregations':args})
+
 def bll6_forest_today():
-    p = bll6_models(forest(), {'year':2016})
-    p[0].named_steps['fit']._target = True
-    return p
+    p = bll6_models(forest(), {'year':2016})[0]
+    # save the model
+    p.named_steps['fit']._target = True
+
+    # put the predictions into the database
+    return data.ToSQL(table_name='predictions', if_exists='replace', 
+            inputs=[p], 
+            inputs_mapping=[{'y':'df', 'feature_importances':None}, 'db'], 
+            target=True)
 
 def bll6_forest_quarterly():
     return bll6_models(forest(), 
@@ -36,11 +51,6 @@ def bll6_forest_quarterly():
 def bll6_forest_monthly():
     return bll6_models(forest(), 
         {'month':range(1,13), 'year':range(2010,2014+1)})
-
-# exclude the kids_wic features (for testing effect of lagged wic data)
-def bll6_forest_quarterly_no_kids_wic():
-    return bll6_models(forest(), 
-            {'month':[1,3,6,9], 'exclude':[['kids_.*_wic_.*']]})
 
 def bll6_forest_no_complex():
     args = dict(aggregations.args)
@@ -117,7 +127,6 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        # default day is january 25
         month = 6,
         day = 13,
         train_years = [6],
