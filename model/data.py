@@ -35,14 +35,11 @@ class LeadData(Step):
         self.inputs_mapping=['acs', {}] + [None]*len(self.aggregations)
 
     def run(self, acs, left, aux):
-        X = left
-
         # join all aggregations
-        for aj in self.aggregation_joins:
-            logging.info('Joining %s' % aj.inputs[1].__class__.__name__)
-            a = aj.get_result()
-            a = a[a.columns.difference(left.columns)]
-            X = X.join(a)
+        logging.info('Joining aggregations')
+        aggregation_results = [a.get_result().drop(left.columns, axis=1) 
+                for a in self.aggregation_joins]
+        X = left.join(aggregation_results)
 
         logging.info('Joining ACS')
         # backfill missing acs data
@@ -68,6 +65,7 @@ class LeadData(Step):
         X['wic'] = (aux.first_wic_date < aux.date).fillna(False)
 
         logging.info('Binarizing sets')
+        # TODO: faster to just binarize in the wic aggregation
         binarize = {'enroll': ['employment_status', 'occupation', 'assistance', 'language', 'clinic'],
                     'prenatal': ['clinic', 'service'],
                     'birth': ['clinic', 'complication', 'disposition', 'place_type']}
