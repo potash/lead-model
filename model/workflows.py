@@ -6,7 +6,7 @@ from lead.output import aggregations
 from itertools import product
 
 def forest():
-    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=500, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
+    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=1000, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
 
 def model_svm():
     return mdoels(model.svms())
@@ -127,8 +127,8 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        month = 6,
-        day = 13,
+        month = 9,
+        day = 9,
         train_years = [6],
         year = range(2010, 2014+1),
         spacetime_normalize = [False],

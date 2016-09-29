@@ -44,6 +44,7 @@ class LeadTransform(Step):
             raise ValueError('Invalid year: %s' % year)
 
         today = date(year, month, day)
+        # use kid_addresses_revised for a revised aux matrix for temporally valid training queries
         kid_addresses_revised = revise_kid_addresses(date=today)
         self.inputs = [lead_data(month, day, wic_lag), kid_addresses_revised]
 

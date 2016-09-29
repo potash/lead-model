@@ -9,7 +9,7 @@ wic_address_ids as (
     select kid_id, address_id,
         ka.wic_infant_ogc_fids is not null as address_wic_infant,
         ka.wic_mother_ogc_fids is not null as address_wic_mother,
-        p.address_test_min_date is null as address_test,
+        p.address_test_min_date is not null as address_test,
         unnest(coalesce(ka.wic_infant_ogc_fids || ka.wic_mother_ogc_fids, 
                 '{NULL}'::integer[])) ogc_fid,
         highest_risk.address_id is not null as address_primary
@@ -50,30 +50,37 @@ left join cornerstone.partenrl on addr_id_i = part_id_i
 group by kid_id, address_id, address
 );
 
+do $$
+    DECLARE RISK_COUNT int := 300;
+    DECLARE BASE_COUNT int := 0;
+    DECLARE RANDOM_SEED double precision := 0;
+    DECLARE DOB_MIN date := '2015-11-01'::date;
+    DECLARE DOB_MAX date := '2016-09-30'::date;
+BEGIN
+
+-- subset of predictions features for kids with eligible dob
 create temp table wic_kids as (
     with kids as (
         select distinct on (kid_id) kid_id, score, 
-            address_id, first_name, last_name, date_of_birth, max_bll, test_count, last_sample_date
+            address_id, address, first_name, last_name, date_of_birth, max_bll, test_count, last_sample_date
         from predictions
         where first_wic_date is not null 
             and date_of_birth 
-            between '2015-10-01' and '2016-03-31'
+            between DOB_MIN and DOB_MAX
         order by kid_id, score desc),
-    -- get patient ids for kid
+    -- get participant ids for kid
     part_id_is as (
         select kid_id, array_agg(distinct part_id_i) as part_id_i
         from predictions
         join aux.kid_wics using (kid_id)
         group by kid_id
     )
-    select * from kids join part_id_is using (kid_id)
+    select kids.*, new.part_id_i from kids 
+    join part_id_is new using (kid_id)
+    where 
+    not (part_id_i && (select anyarray_agg(part_id_i) from pilot.pilot01))
+    and not (address in (select address from pilot.pilot01_contact))
 );
-
-do $$
-    DECLARE RISK_COUNT int := 200;
-    DECLARE BASE_COUNT int := 0;
-    DECLARE RANDOM_SEED double precision := 0;
-BEGIN
 -- select risk group
 create temp table pilot01_risk as (
     select *, false as inspection
@@ -89,7 +96,6 @@ where address_id in (
     select address_id from pilot01_risk 
     order by random() limit RISK_COUNT/2
 );
-
 
 -- select 20 for base group
 PERFORM setseed(RANDOM_SEED);
@@ -119,8 +125,18 @@ create table pilot01 as
 
 drop table if exists pilot01_contact;
 create table pilot01_contact as (
-    select part_id_i, first_name, last_name, date_of_birth, inspection, wic_contact.*
-    from pilot01 join wic_contact using (kid_id)
+    with last_investigations as (
+        select distinct on(address_id) *
+        from output.investigations
+        order by address_id, coalesce(closure_date, comply_date,init_date,referral_date) desc
+    )
+    select part_id_i, first_name, pilot01.last_name, date_of_birth, inspection, wic.*,
+        phne_nbr_n[1] as phne_nbr_n1,   -- first phone number, which is usually the right one
+        kid_ethnicity as ethnicity,      -- ethnicity, for Spanish language contact
+        referral_date, init_date, hazard_int, hazard_ext, comply_date, closure_date, closure_reason, closure_code
+    from pilot01 join wic_contact wic using (kid_id)
+    left join aux.kid_ethnicity using (kid_id)
+    left join last_investigations invest on wic.address_id = invest.address_id
 );
 
 \copy pilot01_contact to data/pilot/02_contact.csv with csv header;
