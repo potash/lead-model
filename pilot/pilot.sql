@@ -135,7 +135,7 @@ create table pilot01_contact as (
         kid_ethnicity as ethnicity,      -- ethnicity, for Spanish language contact
         referral_date, init_date, hazard_int, hazard_ext, comply_date, closure_date, closure_reason, closure_code
     from pilot01 join wic_contact wic using (kid_id)
-    left join aux.kid_ethnicity using (kid_id)
+    left join output.kid_ethnicity using (kid_id)
     left join last_investigations invest on wic.address_id = invest.address_id
 );
 
