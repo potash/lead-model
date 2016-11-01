@@ -49,6 +49,7 @@ class LeadTransform(Step):
         self.inputs = [lead_data(month, day, wic_lag), kid_addresses_revised]
 
     def run(self, revised, X, aux):
+        import pdb; pdb.set_trace()
         today = util.timestamp(self.year, self.month, self.day)
         min_date = util.timestamp(self.year - self.train_years, self.month, self.day)
 
@@ -64,14 +65,13 @@ class LeadTransform(Step):
         train = (date < today) & (aux.address_min_date < today)
         test = date == today
 
-        revised = revise_helper(revised=revised, aux=aux, 
-                train=train, test=test, today=today)
         if self.train_query is not None:        
             train &= train.index.isin(
                     revised.query(self.train_query).index)
-        # align kid_addresses_revised with the index of X and aux
 
-        #aux = aux[(train | test)]
+        revised = revise_helper(revised=revised, aux=aux, 
+                train=train, test=test, today=today)
+
         aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test, drop=True)
 
@@ -118,7 +118,7 @@ def revise_helper(revised, aux, train, test, today):
     with the revised for training
     """
     revised = aux[[]][train].reset_index().merge(revised, how='left', 
-            on=['kid_id', 'address_id'])
+            on=['kid_id', 'address_id', 'date'])
     revised.set_index(['kid_id', 'address_id', 'date'], inplace=True)
     revised = pd.concat((revised, aux[test]))
 

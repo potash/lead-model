@@ -44,7 +44,7 @@ class LeadData(Step):
         logging.info('Joining ACS')
         # backfill missing acs data
         census_tract_id = acs.census_tract_id # store tracts
-        acs = acs.groupby('census_tract_id').transform(
+        acs = acs.groupby('census_tract_id').apply(
                 lambda d: d.sort_values('year', ascending=True)\
                     .fillna(method='backfill'))
         acs['census_tract_id'] = census_tract_id
