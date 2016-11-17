@@ -64,12 +64,13 @@ class LeadTransform(Step):
         train = (date < today) & (aux.address_min_date < today)
         test = date == today
 
-        if self.train_query is not None:        
-            train &= train.index.isin(
-                    revised.query(self.train_query).index)
-
         revised = revise_helper(revised=revised, aux=aux, 
                 train=train, test=test, today=today)
+
+        if self.train_query is not None:
+            old_train = train
+            train &= train.index.isin(revised.query(self.train_query).index)
+            revised = revised[revised.index.isin(train[train | test].index)]
 
         aux.drop(aux.index[~(train | test)], inplace=True)
         X,train,test = data.train_test_subset(X, train, test, drop=True)
