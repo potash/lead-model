@@ -130,11 +130,10 @@ def bll6_models(estimators, transform_search = {}):
         month = 9,
         day = 9,
         train_years = [6],
-        year = 2014,#range(2010, 2014+1),
+        year = range(2010, 2014+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0],
         aggregations = aggregations.args,
-        #train_query = [None, 'address_max_bll >= 0', 'max_bll >= 0'],
         train_query = [None],
         outcome_expr = ['address_max_bll >= 6']
     )
