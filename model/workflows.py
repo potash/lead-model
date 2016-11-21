@@ -24,6 +24,9 @@ def bll6_forest_lag6m():
 def bll6_forest():
     return bll6_models(forest())
 
+def bll6_forest_train_queries():
+    return bll6_models(forest(), {'train_query': [None, 'address_max_bll >= 0', 'max_bll >= 0']})
+
 def bll6_forest_less_tract():
     args = dict(aggregations.args)
     for k in args:
@@ -135,7 +138,7 @@ def bll6_models(estimators, transform_search = {}):
         wic_sample_weight = [0],
         aggregations = aggregations.args,
         train_query = [None],
-        outcome_expr = ['address_max_bll >= 6']
+        outcome_expr = ['max_bll >= 6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)
