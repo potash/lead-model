@@ -13,23 +13,26 @@ import numpy as np
 import logging
 
 class LeadData(Step):
-    def __init__(self, month, day, year_min, year_max, wic_lag=None, **kwargs):
+    def __init__(self, month, day, year_min, year_max, wic_lag=None):
         Step.__init__(self, month=month, day=day, 
                 year_min=year_min, year_max=year_max,
-                wic_lag=wic_lag,
-                **kwargs)
+                wic_lag=wic_lag)
 
-        acs = FromSQL(table='output.acs', target=True)
-        left = LeadLeft(month=month, day=day, year_min=year_min, target=True)
+        acs = FromSQL(table='output.acs')
+        acs.target = True
 
-        dates = tuple((date(y, month, day) 
-                for y in range(year_min, year_max+1)))
+        left = LeadLeft(month=month, day=day, year_min=year_min)
+        left.target = True
+
+        dates = tuple((date(y, month, day) for y in range(year_min, year_max+1)))
         self.aggregations = aggregations.all_dict(dates, wic_lag)
+
         self.aggregation_joins = [
-                SpacetimeAggregationJoin(target=True, inputs=[left, a], 
+                SpacetimeAggregationJoin(inputs=[left, a], 
                 lag = wic_lag if name.startswith('wic') else None,
                 inputs_mapping=[{'aux':None}, 'aggregation']) 
             for name, a in self.aggregations.iteritems()]
+        for aj in self.aggregation_joins: aj.target = True
 
         self.inputs = [acs, left] + self.aggregation_joins
         self.inputs_mapping=['acs', {}] + [None]*len(self.aggregations)

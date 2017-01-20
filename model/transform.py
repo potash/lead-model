@@ -13,9 +13,15 @@ import numpy as np
 import logging
 from drain.util import lru_cache
 
+YEAR_MIN=2003
+YEAR_MAX=2017
+
 @lru_cache(maxsize=10)
 def lead_data(month, day, wic_lag):
-    return LeadData(month=month, day=day, year_min=2003, year_max=2016, wic_lag=wic_lag, target=True)
+    ld = LeadData(month=month, day=day, year_min=YEAR_MIN, year_max=YEAR_MAX, 
+                    wic_lag=wic_lag)
+    ld.target = True
+    return ld
 
 class LeadTransform(Step):
     EXCLUDE = ['address_id', 'building_id', 'complex_id', 
@@ -27,7 +33,7 @@ class LeadTransform(Step):
             wic_lag=None,
             train_query=None,
             spacetime_normalize=False,
-            wic_sample_weight=1, exclude=[], include=[], **kwargs):
+            wic_sample_weight=1, exclude=[], include=[]):
         Step.__init__(self, month=month, day=day, year=year, 
                 outcome_expr=outcome_expr,
                 train_years=train_years,
@@ -36,11 +42,9 @@ class LeadTransform(Step):
                 train_query=train_query,
                 spacetime_normalize=spacetime_normalize,
                 wic_sample_weight=wic_sample_weight, 
-                exclude=exclude, include=include, **kwargs)
+                exclude=exclude, include=include)
 
-        year_min = 2003
-        year_max = 2016
-        if not year_min <= year <= year_max:
+        if not YEAR_MIN <= year <= YEAR_MAX:
             raise ValueError('Invalid year: %s' % year)
 
         today = date(year, month, day)
