@@ -51,10 +51,11 @@ class LeadData(Step):
                     .fillna(method='backfill'))
         data.prefix_columns(acs, 'acs_', ignore=['census_tract_id'])
 
-        # >= 2015, use acs2015, <= 2010 use acs2010
-        # TODO use use 2009 after adding 2000 census tract ids!
-        X['acs_year'] = X.date.apply(lambda d: 
-                min(2015, max(2010, d.year)))
+        # Assume ACS y is released on 1/1/y+2
+        # >= 2017, use acs2015, <= 2012 use acs2010
+        # TODO: use use 2009 after adding 2000 census tract ids!
+        X['acs_year'] = X.date.dt.year.apply(lambda y: 
+                min(2015, max(2010, y-2)))
         X = X.merge(acs, how='left', 
                 on=['acs_year', 'census_tract_id'])
         X.drop(['acs_year'], axis=1, inplace=True)
@@ -64,17 +65,6 @@ class LeadData(Step):
         X['date_of_birth_days'] = util.date_to_days(aux.date_of_birth)
         X['date_of_birth_month'] = aux.date_of_birth.dt.month
         X['wic'] = (aux.first_wic_date < aux.date).fillna(False)
-
-        logging.info('Binarizing sets')
-        # TODO: faster to just binarize in the wic aggregation
-        binarize = {'enroll': ['employment_status', 'occupation', 'assistance', 'language', 'clinic'],
-                    'prenatal': ['clinic', 'service'],
-                    'birth': ['clinic', 'complication', 'disposition', 'place_type']}
-        for table, columns in binarize.iteritems():
-            for column in columns:
-                c = 'wic%s_kid_all_%s' % (table, column)
-                X[c].replace(0, np.nan, inplace=True) # TODO: handle this better in Aggregation fillna
-                data.binarize_set(X, c)
 
         X.set_index(['kid_id', 'address_id', 'date'], inplace=True)
         aux.set_index(['kid_id', 'address_id', 'date'], inplace=True)
