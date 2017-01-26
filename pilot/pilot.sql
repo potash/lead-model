@@ -23,13 +23,12 @@ create temp table past_pilot_kids as (
 -- subset of predictions features for kids with eligible dob
 create temp table wic_kids as (
     with kids as (
-        select distinct on (kid_id) kid_id, score, 
-            address_id, address, first_name, last_name, date_of_birth, max_bll, test_count, last_sample_date
+        select kid_id, score, 
+            address_id, address, first_name, last_name, date_of_birth, max_bll0 as max_bll, test_count, last_sample_date
         from predictions
-        where first_wic_date is not null 
+        where address_wic_min_date is not null 
             and date_of_birth 
-            between DOB_MIN and DOB_MAX
-        order by kid_id, score desc),
+            between DOB_MIN and DOB_MAX),
     -- get participant ids for kid
     part_id_is as (
         select kid_id, array_agg(distinct part_id_i) as part_id_i
@@ -40,7 +39,9 @@ create temp table wic_kids as (
     select kids.*, new.part_id_i from kids 
     join part_id_is new using (kid_id)
     where 
+    -- exclude kids already in pilot
     not (part_id_i && (select anyarray_agg(part_id_i) from past_pilot_kids))
+    -- exclude addresses already in pilot
     and not (address in (select address from past_pilot_addresses))
 );
 -- select risk group
@@ -51,12 +52,16 @@ create temp table pilot01_risk as (
     limit RISK_COUNT
 );
 
--- set random addresses to receive inspection
+-- set random kids to receive inspection
+-- all kids at an address are either inspected or not
+-- all addresses for a kid are either inspected or not
 PERFORM setseed(RANDOM_SEED);
 update pilot01_risk set inspection = true 
-where address_id in (
-    select address_id from pilot01_risk 
-    order by random() limit RISK_INSPECT
+where kid_id in (
+    select kid_id from (
+        select address_id from pilot01_risk 
+        order by random() limit RISK_INSPECT)
+    t join pilot01_risk using (address_id) 
 );
 
 -- select for base group
@@ -80,35 +85,55 @@ create temp table pilot01_base as (
 -- set random addresses to receive inspection
 PERFORM setseed(RANDOM_SEED);
 update pilot01_base set inspection = true 
-where address_id in (
-    select address_id from pilot01_base 
-    order by random() limit BASE_INSPECT
+where kid_id in (
+    select kid_id from (
+        select address_id from pilot01_base
+        order by random() limit BASE_INSPECT)
+    t join pilot01_base using (address_id) 
 );
 
 end $$;
 
+-- TODO revise this?
+create temp table last_investigations as (
+    --select distinct on(address_id) *
+    --from output.investigations
+    --order by address_id, coalesce(closure_date, comply_date,init_date,referral_date) desc
+    select 
+        address_id, array_remove(array_agg(distinct apt), null) as investigation_apts,
+        bool_or(closure_date is not null) as investigation_open,
+        max(referral_date) as investigations_last_referral_date,
+        max(init_date) as investigations_last_init_date,
+        max(closure_date) as investigations_last_closure_date,
+        max(comply_date) as investigations_last_comply_date
+    from output.investigations
+    group by address_id
+);
+
+
 drop table if exists pilot01;
-create table pilot01 as
-((select *, true as risk from pilot01_risk) UNION ALL
-    (select *, false as risk from pilot01_base));
+create table pilot01 as (
+with pilot01 as (
+    (select *, true as risk from pilot01_risk) UNION ALL
+    (select *, false as risk from pilot01_base)
+)
+
+select * from
+pilot01
+-- ethnicity for Spanish language contact
+left join (select kid_id, kid_ethnicity from output.kid_ethnicity) ke using (kid_id)
+left join last_investigations invest using (address_id)
+);
 -- copy concatenated to csv
 
 \copy pilot01 to data/pilot/02.csv with csv header;
 
 drop table if exists pilot01_contact;
 create table pilot01_contact as (
-    with last_investigations as (
-        select distinct on(address_id) *
-        from output.investigations
-        order by address_id, coalesce(closure_date, comply_date,init_date,referral_date) desc
-    )
-    select part_id_i, first_name, pilot01.last_name, date_of_birth, inspection, wic.*,
-        phne_nbr_n[1] as phne_nbr_n1,   -- first phone number, which is usually the right one
-        kid_ethnicity as ethnicity,      -- ethnicity, for Spanish language contact
-        referral_date, init_date, hazard_int, hazard_ext, comply_date, closure_date, closure_reason, closure_code
-    from pilot01 join wic_contact wic using (kid_id)
-    left join output.kid_ethnicity using (kid_id)
-    left join last_investigations invest on wic.address_id = invest.address_id
+    select kid_id, address_id, rank() over (partition by kid_id, address_id order by last_upd_d desc, ogc_fid),
+        addr_ln1_t, addr_ln2_t, addr_apt_t, cont_nme_t, relate_c, phne_nbr_n, cell_nbr_n
+    from pilot01 
+    join wic_contact wic using (kid_id, address_id)
 );
 
 \copy pilot01_contact to data/pilot/02_contact.csv with csv header;
