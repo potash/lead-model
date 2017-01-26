@@ -1,8 +1,8 @@
 do $$
     DECLARE RISK_COUNT int := 150;
     DECLARE RISK_INSPECT int := 125;
-    DECLARE BASE_COUNT int := 50;
-    DECLARE BASE_INSPECT int := 40;
+    DECLARE BASE_COUNT int := 150;
+    DECLARE BASE_INSPECT int := 125;
     DECLARE RANDOM_SEED double precision := 0;
     DECLARE DOB_MIN date := '2016-02-01'::date;
     DECLARE DOB_MAX date := '2016-09-30'::date;
@@ -51,7 +51,7 @@ create temp table pilot01_risk as (
     limit RISK_COUNT
 );
 
--- set random half of addresses to receive inspection
+-- set random addresses to receive inspection
 PERFORM setseed(RANDOM_SEED);
 update pilot01_risk set inspection = true 
 where address_id in (
@@ -59,15 +59,25 @@ where address_id in (
     order by random() limit RISK_INSPECT
 );
 
--- select 20 for base group
+-- select for base group
 PERFORM setseed(RANDOM_SEED);
 create temp table pilot01_base as (
-    select *, false as inspection from wic_kids
-    where kid_id not in (select kid_id from pilot01_risk)
+    select w.*, false as inspection 
+    from wic_kids w
+    left join aux.assessor using (address)
+    join output.addresses using (address_id)
+    left join aux.buildings using (building_id)
+    where 
+    -- kid not in risk group
+    kid_id not in (select kid_id from pilot01_risk) and
+    -- address not in risk group
+    address_id not in (select address_id from pilot01_risk)
+    -- built before 1978
+    and min_age > (2014-1978) and pre1978_prop = 1
     order by random() limit BASE_COUNT
 );
 
--- set random half to receive inspection
+-- set random addresses to receive inspection
 PERFORM setseed(RANDOM_SEED);
 update pilot01_base set inspection = true 
 where address_id in (

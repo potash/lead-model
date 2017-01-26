@@ -6,7 +6,7 @@ from lead.output import aggregations
 from itertools import product
 
 def forest():
-    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=1000, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
+    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
 
 def model_svm():
     return mdoels(model.svms())
@@ -37,7 +37,7 @@ def bll6_forest_less_tract():
     return bll6_models(forest(), {'aggregations':args})
 
 def bll6_forest_today():
-    p = bll6_models(forest(), {'year':2016})[0]
+    p = bll6_models(forest(), {'year':2017})[0]
     # save the model
     p.named_steps['fit'].target = True
 
@@ -139,7 +139,7 @@ def bll6_models(estimators, transform_search = {}):
         wic_sample_weight = [0],
         aggregations = aggregations.args,
         train_query = [None],
-        outcome_expr = ['max_bll >= 6']
+        outcome_expr = ['max_bll0 >= 6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)
