@@ -23,7 +23,7 @@ create temp table past_pilot_kids as (
 -- subset of predictions features for kids with eligible dob
 create temp table wic_kids as (
     with kids as (
-        select kid_id, score, 
+        select kid_id, score, date,
             address_id, address, first_name, last_name, date_of_birth, max_bll0 as max_bll, test_count, last_sample_date
         from predictions
         where address_wic_min_date is not null 
