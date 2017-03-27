@@ -6,7 +6,7 @@ from lead.output import aggregations
 from itertools import product
 
 def forest():
-    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=1000, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
+    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
 
 def model_svm():
     return mdoels(model.svms())
@@ -37,15 +37,16 @@ def bll6_forest_less_tract():
     return bll6_models(forest(), {'aggregations':args})
 
 def bll6_forest_today():
-    p = bll6_models(forest(), {'year':2016})[0]
+    p = bll6_models(forest(), {'year':2017})[0]
     # save the model
-    p.named_steps['fit']._target = True
+    p.named_steps['fit'].target = True
 
     # put the predictions into the database
-    return data.ToSQL(table_name='predictions', if_exists='replace', 
+    tosql = data.ToSQL(table_name='predictions', if_exists='replace', 
             inputs=[p], 
-            inputs_mapping=[{'y':'df', 'feature_importances':None}, 'db'], 
-            target=True)
+            inputs_mapping=[{'y':'df', 'feature_importances':None}, 'db'])
+    tosql.target = True
+    return tosql
 
 def bll6_forest_quarterly():
     return bll6_models(forest(), 
@@ -130,15 +131,15 @@ def train_min_last_sample_age():
 
 def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        month = 9,
-        day = 9,
+        month = 1,
+        day = 1,
         train_years = [6],
-        year = range(2010, 2014+1),
+        year = range(2010, 2015+1),
         spacetime_normalize = [False],
         wic_sample_weight = [0],
         aggregations = aggregations.args,
         train_query = [None],
-        outcome_expr = ['max_bll >= 6']
+        outcome_expr = ['max_bll0 >= 6']
     )
     transformd.update(transform_search)
     return models(estimators, transformd)
@@ -166,13 +167,14 @@ def product_models(estimators, transform_search = {}):
         ts = test_models(estimators, transform_search)
         bs = bll6_models(estimators, transform_search)
         for t in ts:
-            t.__name__ = 'estimator_t'
-            t.get_input('transform').__name__ = 'transform_t'
+            t.name = 'estimator_t'
+            t.get_input('transform').name = 'transform_t'
 
         for t,b in product(ts, bs):
             
             p = model.PredictProduct(inputs=[t,b], 
-                    inputs_mapping=['test', 'bll6'], target=True)
+                    inputs_mapping=['test', 'bll6'])
+            p.target = True
             steps.append(p)
             
     return steps
@@ -182,16 +184,16 @@ def models(estimators, transform_search):
     for transform_args, estimator in product(
             dict_product(transform_search), estimators):
     
-        transform = lead.model.transform.LeadTransform(
-                name='transform', **transform_args)
+        transform = lead.model.transform.LeadTransform(**transform_args)
+        transform.name = 'transform'
 
-        fit = model.Fit(inputs=[estimator, transform], 
-                name='fit', target=False, return_estimator=True)
+        fit = model.Fit(inputs=[estimator, transform], return_estimator=True)
+        fit.name = 'fit'
 
         y = model.Predict(inputs=[fit, transform], 
-                name='predict', 
-                return_feature_importances=True, 
-                target=True)
+                return_feature_importances=True)
+        y.name = 'predict'
+        y.target = True
 
         steps.append(y)
 

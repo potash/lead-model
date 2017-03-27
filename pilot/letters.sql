@@ -1,46 +1,67 @@
-create temp table letters as (
-with
-
--- addresses with kids under 1
-addresses_under1 as (select address_id from output.kid_addresses join output.kids using (kid_id) where first_wic_date is not null and date_of_birth >= ('2016-04-26' - interval '1 year')),
-
--- all kids between 1 and 2
-kids1to2 as (select kid_id, date_of_birth from output.kids where first_wic_date is not null and date_of_birth between ('2016-04-26' - interval '2 year') and ('2016-04-26' - interval '1 year')),
-
--- exclude kids sharing address with kids under 1
-kids1to2_exclude as (select kid_id from kids1to2 join output.kid_addresses using (kid_id) join addresses_under1 using (address_id)),
-
--- include the rest of the kids
-kids1to2_include as (select kid_id, date_of_birth from kids1to2 where kid_id not in (select kid_id from kids1to2_exclude)),
-
-letters as (
-select distinct on (kid_id) kid_id, part_id_i,
-    brth_lst_t,
-    brth_fst_t,
-    birth_d,
-    a.last_upd_d,
-    addr_ln1_t,
-    addr_ln2_t,
-    addr_apt_t,
-    addr_cty_t,
-    addr_st_c,
-    addr_zip_n,
-    zip_ext_n,
-    cont_nme_t,
-    relate_c
---    ,
---    county_c,
---    phne_nbr_n,
---    cell_nbr_n
-
-from kids1to2_include
-join aux.kid_wics using (kid_id)
-join cornerstone.partenrl using (part_id_i)
-join cornerstone.partaddr a on part_id_i = addr_id_i
-order by kid_id, a.last_upd_d desc
+create temp table contact as (
+with kid_wics as (
+    select kid_id, array_agg(part_id_i) part_id_i from aux.kid_wics
+    group by kid_id
 )
 
-select * from letters where cont_nme_t is not null
+    select distinct on (kid_id, address_id) 
+        wic_contact.*, part_id_i, a.address, 
+        a.community_area_id, zip_code, date_of_birth, first_name, last_name,
+        max_bll0 as max_bll
+    from wic_contact
+    join output.kids using (kid_id)
+    join kid_wics using (kid_id)
+    join output.addresses a using (address_id)
+    left join aux.assessor using (address)
+    left join aux.buildings using (building_id)
+    join aux.addresses using (address_id)
+    where 
+    -- between 1 and 2 years old 
+    '2017-02-01' - date_of_birth between 366 and 2*365
+    -- child's address 
+    and address_wic_infant
+    and pre1978_prop = 1 and min_age > (2014-1978)
+    -- most recent entry for this child, address 
+    order by kid_id, address_id, last_upd_d desc
 );
 
-\copy letters to data/pilot/letters.csv with csv header;
+drop table if exists pilot.letters;
+create table pilot.letters as (
+with past as (
+    select part_id_i, address from pilot.pilot01_contact
+    UNION ALL
+    select part_id_i, address from pilot.pilot02_contact
+    UNION ALL
+    select part_id_i, address from pilot.pilot03
+)
+
+select *, zip_code in (60621, 60636) as englewood, false as treatment,
+    coalesce(cont_nme_t, 'PARENT OR GUARDIAN OF ' || first_name || ' ' || last_name)
+        AS recipient
+from contact
+-- address not in pilot
+where address not in (select address from past) 
+-- kid not in pilot
+and not (part_id_i && (select anyarray_agg(part_id_i) from past))
+);
+
+select setseed(0);
+update pilot.letters set treatment = true
+where englewood and kid_id in (
+    select kid_id from (
+        select address_id from pilot.letters where englewood
+        order by random() 
+        limit (select count(*)/2 from pilot.letters where englewood))
+    t join pilot.letters using (address_id)
+);
+
+
+select setseed(0);
+update pilot.letters set treatment = true
+where not englewood and kid_id in (
+    select kid_id from (
+        select address_id from pilot.letters where not englewood
+        order by random() 
+        limit (select count(*)/2 from pilot.letters where not englewood))
+    t join pilot.letters using (address_id)
+);

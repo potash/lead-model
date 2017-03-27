@@ -7,21 +7,22 @@ import pandas as pd
 import numpy as np
 import logging
 
+kid_addresses = FromSQL(table='output.kid_addresses', parse_dates=KID_ADDRESSES_PARSE_DATES)
+kid_addresses.target = True
+
+kids = FromSQL(table='output.kids', parse_dates=KIDS_PARSE_DATES, 
+                    to_str=['first_name','last_name'])
+kids.target = True
+
+addresses = FromSQL(table='output.addresses')
+addresses.target = True
+
 class LeadLeft(Step):
-    def __init__(self, month, day, year_min, **kwargs):
-        Step.__init__(self, month=month, day=day, year_min=year_min, 
-                **kwargs)
+    def __init__(self, month, day, year_min):
+        Step.__init__(self, month=month, day=day, year_min=year_min)
 
-        kid_addresses = Merge(on='kid_id', inputs=[
-                FromSQL(table='output.kid_addresses', 
-                    parse_dates=KID_ADDRESSES_PARSE_DATES, target=True), 
-                FromSQL(table='output.kids', 
-                    parse_dates=KIDS_PARSE_DATES, 
-                    to_str=['first_name','last_name'], target=True)])
-
-        addresses = FromSQL(table='output.addresses', target=True)
-
-        self.inputs = [kid_addresses, addresses]
+        aux = Merge(on='kid_id', inputs=[kid_addresses, kids])
+        self.inputs = [aux, addresses]
 
     def run(self, aux, addresses):
         min_date = util.timestamp(self.year_min, self.month, self.day)
