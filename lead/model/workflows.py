@@ -39,7 +39,7 @@ def bll6_forest_less_tract():
 def bll6_forest_today():
     p = bll6_models(forest(), {'year':2017})[0]
     # save the model
-    p.named_steps['fit'].target = True
+    p.get_input('fit').target = True
 
     # put the predictions into the database
     tosql = data.ToSQL(table_name='predictions', if_exists='replace', 
