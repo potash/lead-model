@@ -1,17 +1,15 @@
 from drain.step import Step
 from drain import util, data
 from drain.data import FromSQL, Merge
-from lead.output.kids import KIDS_PARSE_DATES, KID_ADDRESSES_PARSE_DATES
 
 import pandas as pd
 import numpy as np
 import logging
 
-kid_addresses = FromSQL(table='output.kid_addresses', parse_dates=KID_ADDRESSES_PARSE_DATES)
+kid_addresses = FromSQL(table='output.kid_addresses')
 kid_addresses.target = True
 
-kids = FromSQL(table='output.kids', parse_dates=KIDS_PARSE_DATES, 
-                    to_str=['first_name','last_name'])
+kids = FromSQL(table='output.kids', to_str=['first_name','last_name'])
 kids.target = True
 
 addresses = FromSQL(table='output.addresses')
