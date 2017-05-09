@@ -1,9 +1,12 @@
 import pandas as pd
+import sys
 from drain import util
 
+suffix = sys.argv[1]
+
 engine = util.create_engine()
-pilot = pd.read_sql('select * from pilot.pilot03', engine)
-contact = pd.read_sql('select * from pilot.pilot03_contact', engine)
+pilot = pd.read_sql('select * from pilot.pilot'+suffix, engine)
+contact = pd.read_sql('select * from pilot.pilot'+suffix+'_contact', engine)
 
 # unstack rank
 contact = contact.set_index(['kid_id', 'address_id', 'rank']).unstack('rank')
