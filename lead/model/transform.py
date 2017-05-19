@@ -56,9 +56,9 @@ class LeadTransform(Step):
         today = util.timestamp(self.year, self.month, self.day)
         min_date = util.timestamp(self.year - self.train_years, self.month, self.day)
 
-        for df in (X, aux):
-            date = data.index_as_series(df, 'date')
-            df.drop(df.index[(date < min_date) | (date > today)], inplace=True)
+        date = data.index_as_series(X, 'date')
+        X = X[date.between(min_date, today)]
+        aux = aux[date.between(min_date,today)]
 
         logging.info('Splitting train and test sets')
         # add date column to index
@@ -76,7 +76,7 @@ class LeadTransform(Step):
             train &= train.index.isin(revised.query(self.train_query).index)
             revised = revised[revised.index.isin(train[train | test].index)]
 
-        aux.drop(aux.index[~(train | test)], inplace=True)
+        aux = aux[train | test]
         X,train,test = data.train_test_subset(X, train, test, drop=True)
 
         logging.info('Selecting aggregations')
