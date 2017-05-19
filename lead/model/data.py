@@ -3,7 +3,7 @@ from drain import util, data
 from drain.data import FromSQL, Merge
 from drain.aggregation import SpacetimeAggregationJoin
 
-from lead.output import aggregations
+from lead.features import aggregations
 from lead.model.left import LeadLeft
 
 from datetime import date

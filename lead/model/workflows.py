@@ -2,7 +2,7 @@ from drain import data, step, model, util
 from drain.util import dict_product
 import lead.model.data
 import lead.model.transform
-from lead.output import aggregations
+from lead.features import aggregations
 from itertools import product
 
 def forest():

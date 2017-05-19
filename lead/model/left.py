@@ -9,7 +9,7 @@ import logging
 kid_addresses = FromSQL(table='output.kid_addresses')
 kid_addresses.target = True
 
-kids = FromSQL(table='output.kids', to_str=['first_name','last_name'])
+kids = FromSQL(table='output.kids')
 kids.target = True
 
 addresses = FromSQL(table='output.addresses')

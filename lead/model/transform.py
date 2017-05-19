@@ -3,7 +3,7 @@ from drain.data import ToHDF
 from drain import util, data
 from drain.aggregation import SpacetimeAggregation
 
-from lead.output.kids import revise_kid_addresses
+from lead.features.kids import revise_kid_addresses
 from lead.model.data import LeadData
 
 from sklearn import preprocessing
