@@ -6,7 +6,7 @@ from lead.features import aggregations
 from itertools import product
 
 def forest():
-    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', balanced=True, max_features='sqrt', random_state=0)]
+    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', class_weight='balanced_bootstrap', max_features='sqrt', random_state=0)]
 
 def model_svm():
     return mdoels(model.svms())
