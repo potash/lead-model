@@ -39,8 +39,7 @@ class LeadData(Step):
     def run(self, acs, left, aux):
         # join all aggregations
         logging.info('Joining aggregations')
-        aggregation_results = [a.get_result().drop(left.columns, axis=1) 
-                for a in self.aggregation_joins]
+        aggregation_results = [a.get_result() for a in self.aggregation_joins]
         X = left.join(aggregation_results)
 
         logging.info('Joining ACS')
@@ -57,7 +56,7 @@ class LeadData(Step):
                 min(2015, max(2010, y-2)))
         X = X.merge(acs, how='left', 
                 on=['acs_year', 'census_tract_id'])
-        X.drop(['acs_year'], axis=1, inplace=True)
+        X = X.drop('acs_year', axis=1)
 
         logging.info('Dates')
         X['age'] = (aux.date - aux.date_of_birth)/util.day
