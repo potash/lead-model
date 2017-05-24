@@ -25,28 +25,32 @@ indexes = {
     'tract':'census_tract_id',
 }
 
-deltas = {
-    'address': ['1y', '2y', '5y', '10y', 'all'],
-    'complex': ['1y', '2y', '5y', '10y', 'all'],
-    'block': ['1y','2y','5y'],
-    'tract': ['1y','2y','3y']
-}
+def get_deltas():
+    return {
+        'address': ['1y', '2y', '5y', '10y', 'all'],
+        #'complex': ['1y', '2y', '5y', '10y', 'all'],
+        'block': ['1y','2y','5y'],
+        'tract': ['1y','2y','3y']
+    }
 
 wic = {'kid': ['all']}
 
-args = dict(
-    buildings = ['building', 'complex', 'block', 'tract'],
-    assessor = ['address', 'building', 'complex', 'block', 'tract'],
-    tests = deltas,
-    investigations = deltas,
-    events = deltas,
-    permits = deltas,
-    kids = dict(kid=['all'], **deltas),
-    violations = util.dict_subset(deltas, ('address', 'block')),
-    wic_enroll = wic,
-    wic_birth = wic,
-    wic_prenatal = wic,
-)
+def get_args(deltas):
+    return dict(
+        buildings = ['building', 'complex', 'block', 'tract'],
+        assessor = ['address', 'building', 'complex', 'block', 'tract'],
+        tests = deltas,
+        investigations = deltas,
+        #events = deltas,
+        permits = deltas,
+        kids = dict(kid=['all'], **deltas),
+        violations = util.dict_subset(deltas, ('address', 'block')),
+        wic_enroll = wic,
+        wic_birth = wic,
+        wic_prenatal = wic,
+    )
+
+args = get_args(get_deltas())
 
 @lru_cache(maxsize=10)
 def all_dict(dates=None, lag=None):
