@@ -39,8 +39,9 @@ class LeadData(Step):
     def run(self, acs, left, aux):
         # join all aggregations
         logging.info('Joining aggregations')
-        aggregation_results = [a.get_result() for a in self.aggregation_joins]
-        X = left.join(aggregation_results)
+        X = left.join([a.get_result() for a in self.aggregation_joins])
+        # delete all aggregation inputs so that memory can be freed
+        for a in self.aggregation_joins: del a._result
 
         logging.info('Joining ACS')
         # backfill missing acs data
