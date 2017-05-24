@@ -4,6 +4,7 @@ import lead.model.data
 import lead.model.transform
 from lead.features import aggregations
 from itertools import product
+from copy import deepcopy
 
 def forest():
     return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', class_weight='balanced_bootstrap', max_features='sqrt', random_state=0)]
@@ -56,15 +57,42 @@ def bll6_forest_monthly():
     return bll6_models(forest(), 
         {'month':range(1,13), 'year':range(2010,2014+1)})
 
-def bll6_forest_no_complex():
-    args = dict(aggregations.args)
-    for name, indexes in args.iteritems():
-        if isinstance(indexes, dict):
-            args[name] = {k:v for k,v in indexes.iteritems() if k != 'complex'}
+def bll6_forest_no_address():
+    deltas = aggregations.get_deltas()
+    deltas.pop('address')
+    args = aggregations.get_args(deltas)
+    return bll6_models(forest(), {'aggregations': args })
 
-    return bll6_models(forest(), {
-            'aggregations': args,
-    })
+def bll6_forest_no_complex():
+    deltas = aggregations.get_deltas()
+    deltas.pop('complex')
+    args = aggregations.get_args(deltas)
+    return bll6_models(forest(), {'aggregations': args })
+
+def bll6_forest_no_events():
+    """
+    exclude events dataset
+    """
+    aggs = deepcopy(aggregations.args)
+    aggs['events'] = {}
+    return bll6_models(forest(), {'aggregations':aggs})
+
+def bll6_forest_deltas_loo():
+    """
+    exclude one spacedelta at a time
+    """
+    deltas = aggregations.get_deltas()
+    aggs = []
+    for space in deltas:
+        for i in range(len(deltas[space])):
+            copy = deepcopy(deltas)
+            copy[space] = deepcopy(deltas[space])
+            copy[space].pop(i)
+            args = aggregations.get_args(copy)
+            aggs.append(args)
+
+    return bll6_models(forest(), {'aggregations':aggs})
+
 
 def bll6_forest_no_tract():
     args = dict(aggregations.args)
@@ -95,6 +123,32 @@ def bll6_kids_complex_1y():
 
 def bll6_forests():
     return bll6_models(forest())
+
+def bll6_aggregations_loo():
+    """
+    leave out one aggregation at a time
+    """
+    args = aggregations.args
+    args_search = [args]
+    for name, a in args.iteritems():
+        if isinstance(a, dict):
+            for space, deltas in a.iteritems():
+                for i in range(len(deltas)):
+                    copy = deepcopy(args)
+                    copy[name] = deepcopy(args[name])
+                    copy[name][space] = deepcopy(args[name][space]).pop(i)
+                    args_search.append(copy)
+        else:
+            for i in range(len(a)):
+                copy = deepcopy(args)
+                copy[name] = deepcopy(args[name]).pop(i)
+                args_search.append(copy)
+
+    return  bll6_models(forest(), {
+            'year': range(2011, 2014),
+            'aggregations': args_search,
+    })
+ 
 
 def bll6_aggregations():
     args = aggregations.args
