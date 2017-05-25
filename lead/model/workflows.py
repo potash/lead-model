@@ -10,7 +10,7 @@ def forest():
     return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', class_weight='balanced_bootstrap', max_features='sqrt', random_state=0)]
 
 def model_svm():
-    return mdoels(model.svms())
+    return models(model.svms())
 
 def model_forests():
     return bll6_models(model.forests(n_estimators=[800], balanced=[True], random_state=0))
