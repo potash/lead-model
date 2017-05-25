@@ -24,10 +24,6 @@ def lead_data(month, day, wic_lag):
     return ld
 
 class LeadTransform(Step):
-    EXCLUDE = ['address_id', 'building_id', 'complex_id', 
-            'census_block_id', 'census_tract_id', 'ward_id', 
-            'community_area_id']
-
     def __init__(self, month, day, year, outcome_expr, train_years, 
             aggregations,
             wic_lag=None,
@@ -89,7 +85,7 @@ class LeadTransform(Step):
         
         # TODO: include gender, ethnicity, etc.
         y = revised.loc[X.index].eval(self.outcome_expr)
-        X = data.select_features(X, exclude=self.EXCLUDE + self.exclude, 
+        X = data.select_features(X, exclude=self.exclude, 
                 include=self.include)
 
         if self.spacetime_normalize:
