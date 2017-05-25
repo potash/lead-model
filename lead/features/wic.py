@@ -24,7 +24,7 @@ select kid_id, register_d, last_upd_d,
     clinicid_i as clinic,
     emplymnt_c as employment, 
     occptn_c as occupation,
-    hsehld_n as household_size, hse_inc_a as household_income,
+    hsehld_n as household_size, hse_inc_a / 100000.0 as household_income,
 array_remove(array[lang_1_c, lang_2_c, lang_3_c], null) as language,
 array_remove(array[pa_cde1_c, pa_cde2_c, pa_cde3_c, pa_cde4_c, pa_cde5_c], null) as assistance
 from enroll 

@@ -21,12 +21,12 @@ class AssessorAggregation(SimpleAggregation):
         return [
             Count(),
             Aggregate('count', 'mean', 'assessents'),
-            Aggregate('land_value', 'sum'),
+            Aggregate(lambda a: a.land_value / 100000, 'mean', name='land_value'),
             Aggregate(['min_age', 'max_age'], ['min', 'mean', 'max']),
 
             # residential total value and average value
             Fraction(
-                Aggregate(lambda a: a.total_value.where(a.residential),
+                Aggregate(lambda a: a.total_value.where(a.residential) / 100000,
                           'sum', 'residential_total_value', fname=False),
                 Aggregate(lambda a: a.units.where(a.residential),
                           'sum', name='residential_units', fname=False),
@@ -34,7 +34,7 @@ class AssessorAggregation(SimpleAggregation):
             ),
             # non-residential total and average value
             Fraction(
-                Aggregate(lambda a: a.total_value.where(~a.residential),
+                Aggregate(lambda a: a.total_value.where(~a.residential) / 100000,
                           'sum', 'non_residential_total_value', fname=False),
                 Aggregate(lambda a: a.units.where(~a.residential),
                           'sum', name='non_residential_units', fname=False),
