@@ -47,8 +47,11 @@ class LeadData(Step):
     def run(self, acs, left, aux):
         # join all aggregations
         logging.info('Joining aggregations')
+
         index_columns = ['kid_id','address_id','date']
-        left = left[index_columns]
+        left_columns = ['ward_id', 'community_area_id', 'address_lat', 'address_lng']
+
+        left = left[index_columns + left_columns]
 
         X = left.join([a.get_result() for a in self.aggregation_joins] + [acs])
         # delete all aggregation inputs so that memory can be freed
