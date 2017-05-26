@@ -26,17 +26,17 @@ class AssessorAggregation(SimpleAggregation):
 
             # residential total value and average value
             Fraction(
-                Aggregate(lambda a: a.total_value.where(a.residential) / 100000,
+                Aggregate(lambda a: a.total_value.where(a.residential > 0) / 100000,
                           'sum', 'residential_total_value', fname=False),
-                Aggregate(lambda a: a.units.where(a.residential),
+                Aggregate(lambda a: a.units.where(a.residential > 0),
                           'sum', name='residential_units', fname=False),
                 include_numerator=True, include_denominator=True
             ),
             # non-residential total and average value
             Fraction(
-                Aggregate(lambda a: a.total_value.where(~a.residential) / 100000,
+                Aggregate(lambda a: a.total_value.where(a.residential == 0) / 100000,
                           'sum', 'non_residential_total_value', fname=False),
-                Aggregate(lambda a: a.units.where(~a.residential),
+                Aggregate(lambda a: a.units.where(a.residential == 0),
                           'sum', name='non_residential_units', fname=False),
                 include_numerator=True, include_denominator=True
             ),
