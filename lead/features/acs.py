@@ -1,4 +1,4 @@
-from drain.step import Step
+from drain.step import Step, MapResults
 from drain.data import FromSQL, prefix_columns
 
 
@@ -10,12 +10,11 @@ class ACS(Step):
         """
         acs = FromSQL(table='output.acs')
         acs.target = True
-        inputs = inputs + [acs]
+        inputs = inputs + [MapResults([acs], 'acs')]
 
         Step.__init__(self, inputs=inputs)
-        self.inputs_mapping = [{'aux':None}, 'acs']
 
-    def run(self, left, acs):
+    def run(self, acs, left):
         acs = acs.groupby('census_tract_id').apply(
                 lambda d: d.sort_values('year', ascending=True)
                 .fillna(method='backfill'))

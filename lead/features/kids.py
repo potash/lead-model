@@ -33,8 +33,8 @@ def revise_kid_addresses(date):
                 date_column='date',
                 date=date)
         
-        for i in kid_addresses.inputs: i.target = True
-        for i in kids.inputs: i.target = True
+        for i in kid_addresses.inputs[0].inputs: i.target = True
+        for i in kids.inputs[0].inputs: i.target = True
 
         return Merge(inputs=[kids, kid_addresses], on='kid_id')
 

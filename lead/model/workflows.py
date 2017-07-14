@@ -1,250 +1,196 @@
-from drain import data, step, model, util
+from drain import data, step, model, data
 from drain.util import dict_product
+from drain.step import Call, Construct, MapResults
+
+from itertools import product
+import pandas as pd
+import os
+
 import lead.model.data
 import lead.model.transform
+import lead.model.cv
 from lead.features import aggregations
-from itertools import product
-from copy import deepcopy
 
-def forest():
-    return [step.Construct('sklearn.ensemble.RandomForestClassifier', n_estimators=2000, n_jobs=-1, criterion='entropy', class_weight='balanced_bootstrap', max_features='sqrt', random_state=0)]
-
-def model_svm():
-    return models(model.svms())
-
-def model_forests():
-    return bll6_models(model.forests(n_estimators=[800], balanced=[True], random_state=0))
-
-def model_logits():
-    return bll6_models(model.logits())
-
-# annual, quarterly, and monthly random forest models
-def bll6_forest_lag6m():
-    return bll6_models(forest(), {'month':[1,4,7,10], 'wic_lag':'6m'})
 
 def bll6_forest():
+    """
+    The basic temporal cross-validation workflow
+    """
     return bll6_models(forest())
 
-def bll6_forest_train_queries():
-    return bll6_models(forest(), {'train_query': [None, 'address_max_bll >= 0', 'max_bll >= 0']})
-
-def bll6_forest_less_tract():
-    args = dict(aggregations.args)
-    for k in args:
-        if k in ('tests', 'inspections', 'events', 'permits', 'kids'):
-            args[k] = dict(**args[k])
-            args[k]['block'] = ['3y']
-            args[k]['tract'] = ['1y']
-    return bll6_models(forest(), {'aggregations':args})
 
 def bll6_forest_today():
-    p = bll6_models(forest(), {'year':2017})[0]
+    """
+    The workflow used to construct a current model
+    Parses the environment variable TODAY using pd.Timestamp to set the date
+    """
+    today = pd.Timestamp(os.environ['TODAY'])
+    p = bll6_models(
+            forest(),
+            dict(year=today.year,
+                 month=today.month,
+                 day=today.day))[0]
     # save the model
     p.get_input('fit').target = True
+    p.get_input('mean').target = True
 
     # put the predictions into the database
-    tosql = data.ToSQL(table_name='predictions', if_exists='replace', 
-            inputs=[p], 
-            inputs_mapping=[{'y':'df', 'feature_importances':None}, 'db'])
+    tosql = data.ToSQL(table_name='predictions', if_exists='replace',
+            inputs=[MapResults([p], mapping=[{'y':'df', 'feature_importances':None}])])
     tosql.target = True
     return tosql
 
+def address_data_past():
+    """
+    Builds address-level features for the past
+    Plus saves fitted models and means for the past
+    """
+    ds = [] # lead address data
+    for y in range(2011,2014+1):
+        d = lead.model.data.LeadData(
+                year_min=y,
+                year_max=y,
+                month=1,
+                day=1,
+                address=True)
+        d.target = True
+        ds.append(d)
+
+    ps = bll6_forest() # predictions
+    for p in ps:
+        p.get_input('fit').target = True
+        p.get_input('mean').target = True
+
+    return ds + ps
+ 
+def address_data_today():
+    """
+    Builds address-level features today
+    """
+    today = pd.Timestamp(os.environ['TODAY'])
+    d = lead.model.data.LeadData(
+            year_min=today.year,
+            year_max=today.year,
+            month=today.month,
+            day=today.day,
+            address=True)
+    d.target = True
+
+    return d
+    
+def bll6_forest_quick():
+    """
+    A fast lead model that only uses 1 year of training data
+    """
+    today = pd.Timestamp(os.environ['TODAY'])
+    p = bll6_models(
+            forest(n_estimators=10),
+            dict(year=today.year,
+                 month=today.month,
+                 day=today.day,
+                 train_years=1))[0]
+    return p
+
+
 def bll6_forest_quarterly():
-    return bll6_models(forest(), 
+    """
+    Quarterly forest models
+    """
+    return bll6_models(forest(),
         {'month':[1,4,7,10], 'year':range(2010,2014+1)})
 
 def bll6_forest_monthly():
-    return bll6_models(forest(), 
+    """
+    Monthly forest models
+    """
+    return bll6_models(forest(),
         {'month':range(1,13), 'year':range(2010,2014+1)})
 
-def bll6_forest_no_address():
-    deltas = aggregations.get_deltas()
-    deltas.pop('address')
-    args = aggregations.get_args(deltas)
-    return bll6_models(forest(), {'aggregations': args })
-
-def bll6_forest_no_complex():
-    deltas = aggregations.get_deltas()
-    deltas.pop('complex')
-    args = aggregations.get_args(deltas)
-    return bll6_models(forest(), {'aggregations': args })
-
-def bll6_forest_no_events():
+def forest(**update_kwargs):
     """
-    exclude events dataset
+    Returns a step constructing a scikit-learn RandomForestClassifier
     """
-    aggs = deepcopy(aggregations.args)
-    aggs['events'] = {}
-    return bll6_models(forest(), {'aggregations':aggs})
+    kwargs = dict(
+        _class='sklearn.ensemble.RandomForestClassifier',
+        n_estimators=1000,
+        n_jobs=-1,
+        criterion='entropy',
+        class_weight='balanced_bootstrap',
+        max_features='sqrt',
+        random_state=0)
 
-def bll6_forest_deltas_loo():
+    kwargs.update(**update_kwargs)
+
+    return [step.Construct(**kwargs)]
+
+def bll6_models(estimators, cv_search={}, transform_search={}):
     """
-    exclude one spacedelta at a time
+    Provides good defaults for transform_search to models()
+    Args:
+        estimators: list of estimators as accepted by models()
+        transform_search: optional LeadTransform arguments to override the defaults
+
     """
-    deltas = aggregations.get_deltas()
-    aggs = []
-    for space in deltas:
-        for i in range(len(deltas[space])):
-            copy = deepcopy(deltas)
-            copy[space] = deepcopy(deltas[space])
-            copy[space].pop(i)
-            args = aggregations.get_args(copy)
-            aggs.append(args)
+    cvd = dict(
+        year=range(2011, 2014+1),
+        month=1,
+        day=1,
+        train_years=[6],
+        train_query=[None],
+    )
+    cvd.update(cv_search)
 
-    return bll6_models(forest(), {'aggregations':aggs})
-
-
-def bll6_forest_no_tract():
-    args = dict(aggregations.args)
-    args['kids'] = util.dict_subset(args['kids'], ['address', 'complex', 'block'])
-    args['tests'] = util.dict_subset(args['tests'], ['address', 'complex', 'block'])
-
-    return bll6_models(forest(), {
-            'aggregations': args,
-    })
-
-def bll6_complex():
-    args = dict(aggregations.args)
-    args['kids'] = {'kid':['all'], 'complex':['1y']}
-    args['tests'] = {'kid':['all'], 'complex':['1y']}
-
-    return bll6_models(forest(), {
-            'aggregations': args,
-    })
-
-def bll6_kids_complex_1y():
-    args = dict(aggregations.args)
-    for k in args:
-        if isinstance(args[k], dict):
-            args[k] = {}
-    args['kids'] = {'kid':['all'], 'complex':['1y']}
-
-    return bll6_models(forest(), {'aggregations': args})
-
-def bll6_forests():
-    return bll6_models(forest())
-
-def bll6_aggregations_loo():
-    """
-    leave out one aggregation at a time
-    """
-    args = aggregations.args
-    args_search = [args]
-    for name, a in args.iteritems():
-        if isinstance(a, dict):
-            for space, deltas in a.iteritems():
-                for i in range(len(deltas)):
-                    copy = deepcopy(args)
-                    copy[name] = deepcopy(args[name])
-                    copy[name][space] = deepcopy(args[name][space]).pop(i)
-                    args_search.append(copy)
-        else:
-            for i in range(len(a)):
-                copy = deepcopy(args)
-                copy[name] = deepcopy(args[name]).pop(i)
-                args_search.append(copy)
-
-    return  bll6_models(forest(), {
-            'year': range(2011, 2014),
-            'aggregations': args_search,
-    })
- 
-
-def bll6_aggregations():
-    args = aggregations.args
-    args_search = [args]
-    for name, a in args.iteritems():
-        if isinstance(a, dict):
-            for space, deltas in a.iteritems():
-                for i in range(len(deltas)):
-                    copy = dict(args)
-                    copy[name] = dict(args[name])
-                    copy[name][space] = deltas[:i]
-                    args_search.append(copy)
-        else:
-            for i in range(len(a)):
-                copy = dict(args)
-                copy[name] = a[:i]
-                args_search.append(copy)
-    print(len(args_search))
-
-    return  bll6_models(forest(), {
-            'year': range(2012, 2014),
-            'aggregations': args_search,
-    })
-                    
-def test_forests():
-    return test_models(forest())
-
-    return test_models(forest())
-def product_forests():
-    return product_models(forest())
-
-def train_min_last_sample_age():
-    return bll6_models(forest(), dict(train_min_last_sample_age=[None, 0, 365, 365*1.5, 365*2, 365*2.5, 365*3]))
-
-def bll6_models(estimators, transform_search = {}):
     transformd = dict(
-        month = 1,
-        day = 1,
-        train_years = [6],
-        year = range(2010, 2015+1),
-        spacetime_normalize = [False],
-        wic_sample_weight = [0],
-        aggregations = aggregations.args,
-        train_query = [None],
-        outcome_expr = ['max_bll0 >= 6']
+        wic_sample_weight=[0],
+        aggregations=aggregations.args,
+        outcome_expr=['max_bll0 >= 6']
     )
     transformd.update(transform_search)
-    return models(estimators, transformd)
+    return models(estimators, cvd, transformd)
 
-def test_models(estimators, transform_search = {}):
-    transformd = dict(
-        month = 1,
-        day = 25,
-        train_years = [3,4,5,6,7],
-        #train_years = [3],
-        year = range(2011, 2014+1),
-        spacetime_normalize = [False],
-        #wic_sample_weight = [0,1],
-        wic_sample_weight = [0],
-        train_query = ['wic and today_age > 365*2'],
-        outcome_expr = ['address_test_max_age > 30*22 or address_max_bll >= 6']
-    )
-    transformd.update(transform_search)
-    return models(estimators, transformd)
+def models(estimators, cv_search, transform_search):
+    """
+    Grid search prediction workflows. Used by bll6_models, test_models, and product_models.
+    Args:
+        estimators: collection of steps, each of which constructs an estimator
+        cv_search: dictionary of arguments to LeadCrossValidate to search over
+        transform_search: dictionary of arguments to LeadTransform to search over
 
-def product_models(estimators, transform_search = {}):
+    Returns: a list drain.model.Predict steps constructed by taking the product of
+        the estimators with the the result of drain.util.dict_product on each of
+        cv_search and transform_search.
+
+        Each Predict step contains the following in its inputs graph:
+            - lead.model.cv.LeadCrossValidate
+            - lead.model.transform.LeadTransform
+            - drain.model.Fit
+    """
     steps = []
-    for year in range(2011, 2014+1):
-        transform_search['year'] = [year]
-        ts = test_models(estimators, transform_search)
-        bs = bll6_models(estimators, transform_search)
-        for t in ts:
-            t.name = 'estimator_t'
-            t.get_input('transform').name = 'transform_t'
+    for cv_args, transform_args, estimator in product(
+            dict_product(cv_search), dict_product(transform_search), estimators):
 
-        for t,b in product(ts, bs):
-            
-            p = model.PredictProduct(inputs=[t,b], 
-                    inputs_mapping=['test', 'bll6'])
-            p.target = True
-            steps.append(p)
-            
-    return steps
+        cv = lead.model.cv.LeadCrossValidate(**cv_args)
+        cv.name = 'cv'
 
-def models(estimators, transform_search):
-    steps = []
-    for transform_args, estimator in product(
-            dict_product(transform_search), estimators):
-    
-        transform = lead.model.transform.LeadTransform(**transform_args)
+        X_train = Call('__getitem__', inputs=[MapResults([cv], {'X':'obj', 'train':'key',
+                                                       'test':None, 'aux':None})])
+        mean = Call('mean', inputs=[X_train])
+        mean.name = 'mean'
+
+        X_impute = Construct(data.impute,
+                             inputs=[MapResults([cv], {'aux':None, 'test':None, 'train':None}),
+                              MapResults([mean], 'value')])
+
+        cv_imputed = MapResults([X_impute, cv], ['X', {'X':None}])
+        cv_imputed.target = True
+
+        transform = lead.model.transform.LeadTransform(inputs=[cv_imputed], **transform_args)
         transform.name = 'transform'
 
         fit = model.Fit(inputs=[estimator, transform], return_estimator=True)
         fit.name = 'fit'
 
-        y = model.Predict(inputs=[fit, transform], 
+        y = model.Predict(inputs=[fit, transform],
                 return_feature_importances=True)
         y.name = 'predict'
         y.target = True

@@ -1,0 +1,15 @@
+digraph model {
+    LeadLeft -> LeadData
+    Aggregations -> LeadData
+    ACS -> LeadData
+
+    LeadData -> LeadCrossValidate
+    LeadCrossValidate -> Mean
+    LeadCrossValidate -> Impute
+    Mean -> Impute
+    LeadCrossValidate -> LeadTransform
+    Impute -> LeadTransform
+    LeadTransform -> Fit
+    Fit -> Predict
+    LeadTransform -> Predict
+}

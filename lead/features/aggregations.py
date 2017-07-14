@@ -53,7 +53,7 @@ def get_args(deltas):
 args = get_args(get_deltas())
 
 @lru_cache(maxsize=10)
-def all_dict(dates=None, lag=None):
+def all_dict(dates=None, lag=None, parallel=True):
     dates = list(dates if dates is not None else DATES)
     delta = data.parse_delta(lag) if lag is not None else None
 
@@ -62,13 +62,13 @@ def all_dict(dates=None, lag=None):
     for name, a in args.iteritems():
         cls = getattr(sys.modules[__name__], '%sAggregation' % name.split('_')[-1].title())
         if name in ('buildings', 'assessor'):
-            aggs[name] = cls(indexes={n:indexes[n] for n in a}, parallel=True)
+            aggs[name] = cls(indexes={n:indexes[n] for n in a}, parallel=parallel)
             for i in aggs[name].inputs: i.target=True
         else:
             spacedeltas = {n: (indexes[n], d) 
                     for n, d in a.iteritems()}
             dates_lagged = [d - delta for d in dates] if delta is not None and name.startswith('wic') else dates
-            aggs[name] = cls(spacedeltas=spacedeltas, dates=dates_lagged, parallel=True)
+            aggs[name] = cls(spacedeltas=spacedeltas, dates=dates_lagged, parallel=parallel)
             for i in aggs[name].inputs: i.target=True
 
     return aggs
