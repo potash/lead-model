@@ -19,39 +19,9 @@ as part of the 2014 [Data Science for Social Good Summer Fellowship](http://dssg
 
 ## Implementation
 
-```
-.
-├── kdd.pdf
-├── lead
-│   ├── aux
-│   ├── buildings
-│   ├── dedupe
-│   ├── Drakefile
-│   ├── example_profile
-│   ├── explore
-│   ├── features
-│   ├── __init__.py
-│   ├── input
-│   ├── model
-│   ├── output
-│   └── pilot
-├── LICENSE
-├── README.md
-└── requirements.txt
-```
 The code for each phase is located in the corresponding subdirectory and is executed using a drakefile.
 The output of each phase is contained in a database schema of the same name. Each folder also has a
 corresponding README documenting the steps.
-
-**input**: Load raw data, see input folder for more details.
-
-**buildings**: Analyze the Chicago buildings shapefile to extract all addresses and group them into buildings and complexes.
-
-**aux**: Process the data to prepare for model building. This includes summarizing and spatially joining datasets.
-
-**dedupe**:Deduplicate the names of children from the blood tests and the WIC Cornerstone database.
-
-**output**: Use the above to create final tables used for exploration, analysis and model feature generation.
 
 **features**: Generate model features by aggregating the datasets at various spatial and temporal resolutions.
 
