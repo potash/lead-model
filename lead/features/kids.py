@@ -12,7 +12,8 @@ import logging
 
 def revise_kid_addresses(date):
         kid_addresses_filename = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
+                os.environ['LEAD_ETL_DIR'],
+                'lead',
                 'output',
                 'kid_addresses.sql')
         kid_addresses = Revise(sql=kid_addresses_filename,
@@ -23,7 +24,8 @@ def revise_kid_addresses(date):
                 date=date)
 
         kids_filename = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
+                os.environ['LEAD_ETL_DIR'],
+                'lead',
                 'output',
                 'kids.sql')
         kids = Revise(sql=kids_filename, 
