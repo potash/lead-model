@@ -113,7 +113,7 @@ def forest(**update_kwargs):
     kwargs = dict(
         _class='sklearn.ensemble.RandomForestClassifier',
         n_estimators=1000,
-        n_jobs=-1,
+        n_jobs=os.environ.get('N_JOBS', -1),
         criterion='entropy',
         class_weight='balanced_bootstrap',
         max_features='sqrt',
