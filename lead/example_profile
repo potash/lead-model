@@ -7,3 +7,5 @@ PGPASSWORD=
 SQL_DIR= ; directory to store sql success files
 DRAINPATH= ; directory to store features and model dumps
 LEAD_ETL_DIR= ; path to lead-etl
+
+TODAY= ; the date of the input files, e.g. '2017-01-01'
