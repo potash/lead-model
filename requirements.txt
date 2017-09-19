@@ -1,1 +1,2 @@
 drain
+-e git://github.com/potash/scikit-learn@merged/balanced-random-forest#egg=scikit-learn

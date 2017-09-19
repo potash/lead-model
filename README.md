@@ -27,67 +27,38 @@ corresponding README documenting the steps.
 
 **model**: Use our [drain pipeline](https://github.com/dssg/drain/) to run models in parallel and serialize the results.
 
+**pilot**: SQL script for generating a contact list for the model pilot.
+
+**explore**: Miscellanous scripts for one-off exploration of the data.
+
 
 ## Deployment
 
-### 1.External Dependencies
-Install these programs:
-- [drake](https://github.com/Factual/drake) (tested with version 1.0.3)
-- [mdbtools](https://github.com/brianb/mdbtools) (0.7.1)
-- ogr2ogr (2.1.0) with PostgreSQL driver (requires libmq)
-- shp2pgsql (2.2.2)
-- postgresql-client (9.6.0)
+### 1. Load and transform the data
+Follow the instructions in the `lead-etl` repository to load and transform the data.
 
-### 2. Libraries
+### 2. Configure variables:
+Copy `./lead/example_profile` to `./lead/default_profile` and set the indicated variables.
+
+Include this repository in your Python path, e.g. by adding this line to your `.bashrc`:
 ```
-sudo apt install libblas-dev liblapack-dev libatlas-base-dev gfortran libhdf5-serial-dev
+export PYTHONPATH=$PYTHONPATH:~/project/lead-model
 ```
 
-Python modules:
+### 3. Install requirements
+Install python requirements:
 ```
 pip install -r requirements.txt
 ```
 
-
-### 2. Create and configure PostgreSQL database:
-Create a database on a PostgreSQL server (tested with version 9.5.4).
-Install the PostGIS (2.2.2) and unaccent extensions (requires admin privileges):
-```
-CREATE EXTENSION postgis;
-CREATE EXTENSION unaccent;
-```
-
-#### 3. Load American Community Survey data:
-Use the [acs2ppgsql](https://github.com/dssg/acs2pgsql) tool to load ACS 5-year data for Illinois into the database.
-Note that a subset of this data will be imported into the lead pipeline below, so the ACS data may be stored in a separate database from the lead data.
-
-#### 4. Configure a profile:
-Copy `./lead/example_profile` to `./lead/default_profile` and set the indicated variables.
-
-
-#### 5. Run the ETL workflow by typing `drake`.
-To run steps in parallel add the argument `--jobs=N` where `N` is the number of cores to use.
-
-To load data into the pipeline first add the path to the data profile into the `example_profile`. The top-level Drakefile
-consists of `%include` statements that bring necessary paths from `example_profile` and the Drakefiles of the sub-directories
-`input, buildings, aux, and dedupe`.
-
-
-#### 6. Run models using `drain`.
-To fit a current model and make predictions run:
+### 3. Run models using `drain`.
+To fit a current model and make predictions change to `./lead` and run:
 ```
 drain lead.model.workflows::bll6_forest_today
 ```
+Here `lead.model.workflows.bll6_forest_today` is a drain workflow, i.e. a function taking no arguments that returns collection of drain steps.
+
 For temporal cross validation use the `bll6_forest` workflow.
-
-## Software we use
-  - [drake](https://github.com/Factual/drake): workflow management
-  - [scikit-learn](http://scikit-learn.org/): machine learning
-  - [pandas](http://pandas.pydata.org/): dataframes
-  - [pytables](http://www.pytables.org/): HDF files
-  - [mdbtools](https://github.com/brianb/mdbtools): Microsoft Access files (tax assessor data)
-  - [dedupe](https://github.com/datamade/dedupe): entity deduplication
-
 
 # License
 
