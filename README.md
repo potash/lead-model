@@ -54,7 +54,7 @@ pip install -r requirements.txt
 ### 3. Run models using `drain`.
 To fit a current model and make predictions change to `./lead` and run:
 ```
-drain lead.model.workflows::bll6_forest_today ...
+drain execute lead.model.workflows::bll6_forest_today ...
 ```
 Here `lead.model.workflows.bll6_forest_today` is a drain workflow, i.e. a function taking no arguments that returns collection of drain steps.
 
