@@ -94,7 +94,7 @@ class LeadData(Step):
         left = data.binarize(left, ['community_area_id', 'ward_id'], astype=self.dtype)
 
         logging.info('Joining aggregations')
-        X = left.join([a.get_result() for a in self.aggregation_joins] + [acs])
+        X = left.join([a.result for a in self.aggregation_joins] + [acs])
         # delete all aggregation inputs so that memory can be freed
         for a in self.aggregation_joins: del a._result
 
