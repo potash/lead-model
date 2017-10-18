@@ -96,7 +96,7 @@ class LeadData(Step):
         logging.info('Joining aggregations')
         X = left.join([a.result for a in self.aggregation_joins] + [acs])
         # delete all aggregation inputs so that memory can be freed
-        for a in self.aggregation_joins: del a._result
+        for a in self.aggregation_joins: del a.result
 
         if not self.address:
             logging.info('Adding auxillary features')
