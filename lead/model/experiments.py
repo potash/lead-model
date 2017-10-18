@@ -1,6 +1,13 @@
 from .workflows import *
 from copy import deepcopy
 
+def bll6_forest_where():
+    """
+    The basic temporal cross-validation workflow
+    """
+    return bll6_models(forest(), transform_search={'outcome_where_expr':[None, 'max_bll0 == max_bll0']})
+    return bll6_models(forest(), transform_search={'outcome_where_expr':['max_bll0 == max_bll0']})
+
 def bll6_forest_no_wic():
     """
     No wic features
