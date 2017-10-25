@@ -83,7 +83,7 @@ class LeadData(Step):
                 sample weights, and evaluation.
         """
         if self.address:
-            index_columns = ['address','date']
+            index_columns = ['address', 'census_block_id', 'ward_id', 'community_area_id', 'date']
         if not self.address:
             index_columns = ['kid_id', 'address_id', 'date']
 
