@@ -84,7 +84,7 @@ class LeadData(Step):
         """
         if self.address:
             index_columns = ['address', 'census_block_id', 'ward_id', 'community_area_id', 'date']
-            left_columns = ['ward_id', 'address_lat', 'address_lng']
+            left_columns = ['address_lat', 'address_lng']
         if not self.address:
             index_columns = ['kid_id', 'address_id', 'date']
             left_columns = ['ward_id', 'community_area_id', 'address_lat', 'address_lng']

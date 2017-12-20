@@ -21,6 +21,7 @@ join input.community_areas c
     on st_intersects(b.geom, c.geom)
 join input.wards w
     on st_intersects(b.geom, w.geom) and st_intersects(c.geom, w.geom)
+group by 1,2,3,4
 )
 select
     null address,
