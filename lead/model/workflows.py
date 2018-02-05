@@ -16,7 +16,7 @@ def bll6_forest():
     """
     The basic temporal cross-validation workflow
     """
-    return bll6_models(forest())
+    return bll6_models(forest(), dump_estimator=True)
 
 
 def bll6_forest_today():
@@ -29,11 +29,9 @@ def bll6_forest_today():
             forest(),
             dict(year=today.year,
                  month=today.month,
-                 day=today.day))[0]
-    # save the model
-    p.get_input('fit').target = True
-    p.get_input('mean').target = True
-
+                 day=today.day),
+            dump_estimator=True)[0]
+    
     # put the predictions into the database
     tosql = data.ToSQL(table_name='predictions', if_exists='replace',
             inputs=[MapResults([p], mapping=[{'y':'df', 'feature_importances':None}])])
@@ -123,7 +121,7 @@ def forest(**update_kwargs):
 
     return [step.Construct(**kwargs)]
 
-def bll6_models(estimators, cv_search={}, transform_search={}):
+def bll6_models(estimators, cv_search={}, transform_search={}, dump_estimator=False):
     """
     Provides good defaults for transform_search to models()
     Args:
@@ -147,15 +145,17 @@ def bll6_models(estimators, cv_search={}, transform_search={}):
         outcome_where_expr='max_bll0 == max_bll0' # this means max_bll0.notnull()
     )
     transformd.update(transform_search)
-    return models(estimators, cvd, transformd)
+    return models(estimators, cvd, transformd, dump_estimator=dump_estimator)
 
-def models(estimators, cv_search, transform_search):
+def models(estimators, cv_search, transform_search, dump_estimator):
     """
     Grid search prediction workflows. Used by bll6_models, test_models, and product_models.
     Args:
         estimators: collection of steps, each of which constructs an estimator
         cv_search: dictionary of arguments to LeadCrossValidate to search over
         transform_search: dictionary of arguments to LeadTransform to search over
+        dump_estimator: whether to dump the estimator (and the mean).
+            Necessary for re-using the model for more scoring later.
 
     Returns: a list drain.model.Predict steps constructed by taking the product of
         the estimators with the the result of drain.util.dict_product on each of
@@ -190,11 +190,15 @@ def models(estimators, cv_search, transform_search):
 
         fit = model.Fit(inputs=[estimator, transform], return_estimator=True)
         fit.name = 'fit'
-
+        
         y = model.Predict(inputs=[fit, transform],
                 return_feature_importances=True)
         y.name = 'predict'
         y.target = True
+
+        if dump_estimator:
+            mean.target = True
+            fit.target = True
 
         steps.append(y)
 
