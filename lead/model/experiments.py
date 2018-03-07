@@ -20,7 +20,24 @@ def bll6_forest_no_kid():
 
     return bll6_models(
             forest(), 
-            transform_search={'aggregations':args})
+            transform_search={'aggregations':args, 'exclude': [['^kid_.*']]})
+
+def bll6_forest_estimators():
+    return bll6_models([forest(n_estimators=1000*n) for n in (1,)])
+
+def bll6_forest_no_kid_wic_estimators():
+    """
+    No kid-level aggregations
+    """
+    args = deepcopy(aggregations.args)
+    for a in args.values():
+        if 'kid' in a:
+            a.pop('kid')
+
+    return bll6_models(
+            [forest(n_estimators=2000, random_state=n) for n in (0,1,2,3,4)], 
+            cv_search={'year':[2012]},
+            transform_search={'aggregations':args, 'exclude': [['^kid_.*']]})
 
 def bll6_svm():
     return models(model.svms())
