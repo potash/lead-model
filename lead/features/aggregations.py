@@ -25,32 +25,36 @@ indexes = {
     'tract':'census_tract_id',
 }
 
-def get_deltas():
-    return {
-        'address': ['1y', '2y', '5y', '10y', 'all'],
-        #'complex': ['1y', '2y', '5y', '10y', 'all'],
-        'block': ['1y','2y','5y'],
-        'tract': ['1y','2y','3y']
-    }
+deltas = {
+    'address': ['1y', '2y', '5y', '10y', 'all'],
+    #'complex': ['1y', '2y', '5y', '10y', 'all'],
+    'block': ['1y','2y','5y'],
+    'tract': ['1y','2y','3y']
+}
 
-wic = {'kid': ['all']}
+# short list of deltas used for building permits and violations
+deltas_thin = {
+    'address': ['1y', '5y', 'all'],
+}
 
-def get_args(deltas):
+#wic = {'kid': ['all']}
+
+def get_args():
     return dict(
         buildings = ['building', 'complex', 'block', 'tract'],
         assessor = ['address', 'building', 'complex', 'block', 'tract'],
         tests = deltas,
         investigations = deltas,
         #events = deltas,
-        permits = deltas,
-        kids = dict(kid=['all'], **deltas),
-        violations = util.dict_subset(deltas, ('address', 'block')),
-        wic_enroll = wic,
-        wic_birth = wic,
-        wic_prenatal = wic,
+        permits = deltas_thin,
+        kids = deltas,
+        violations = deltas_thin,
+        #wic_enroll = wic,
+        #wic_birth = wic,
+        #wic_prenatal = wic,
     )
 
-args = get_args(get_deltas())
+args = get_args()
 
 @lru_cache(maxsize=10)
 def all_dict(dates=None, lag=None, parallel=True):
