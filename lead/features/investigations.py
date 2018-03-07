@@ -12,7 +12,7 @@ from drain.aggregation import SpacetimeAggregation
 from drain.data import FromSQL
 
 day = np.timedelta64(1, 'D')
-CLOSURE_CODES = range(1,12+1)
+CLOSURE_CODES = [1,4,12] # complied, court, state attorney
 DATE_COLUMNS = ['referral_date', 'init_date', 'comply_date', 'closure_date']
 DATE_NAMES = ['referral', 'inspection', 'compliance', 'closure']
 
@@ -72,8 +72,8 @@ class InvestigationsAggregation(SpacetimeAggregation):
         
         aggregates = [
             Count(), 
-            Aggregate('inspected', 'max', fname=False),
-            Aggregate('complied', 'max', fname=False),
+            Aggregate(lambda i: i.inspected.fillna(0), 'max', name='inspected', fname=False),
+            Aggregate(lambda i: i.complied.fillna(0), 'max', name='complied', fname=False),
 
             Count('hazard_int', prop=True), Count('hazard_ext', prop=True),
             Count('hazard', prop=True), Count('hazard_both', prop=True),
