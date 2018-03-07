@@ -1,5 +1,5 @@
 from drain import data, step, model, data
-from drain.util import dict_product
+from drain.util import dict_product, make_list
 from drain.step import Call, Construct, MapResults
 
 from itertools import product
@@ -110,7 +110,7 @@ def forest(**update_kwargs):
     """
     kwargs = dict(
         _class='sklearn.ensemble.RandomForestClassifier',
-        n_estimators=1000,
+        n_estimators=2000,
         n_jobs=int(os.environ.get('N_JOBS', -1)),
         criterion='entropy',
         class_weight='balanced_bootstrap',
@@ -119,7 +119,7 @@ def forest(**update_kwargs):
 
     kwargs.update(**update_kwargs)
 
-    return [step.Construct(**kwargs)]
+    return step.Construct(**kwargs)
 
 def bll6_models(estimators, cv_search={}, transform_search={}, dump_estimator=False):
     """
@@ -145,7 +145,7 @@ def bll6_models(estimators, cv_search={}, transform_search={}, dump_estimator=Fa
         outcome_where_expr='max_bll0 == max_bll0' # this means max_bll0.notnull()
     )
     transformd.update(transform_search)
-    return models(estimators, cvd, transformd, dump_estimator=dump_estimator)
+    return models(make_list(estimators), cvd, transformd, dump_estimator=dump_estimator)
 
 def models(estimators, cv_search, transform_search, dump_estimator):
     """
