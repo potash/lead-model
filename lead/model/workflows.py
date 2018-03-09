@@ -43,24 +43,28 @@ def address_data_past():
     Builds address-level features for the past
     Plus saves fitted models and means for the past
     """
-    ds = [] # lead address data
-    for y in range(2011,2014+1):
-        d = lead.model.data.LeadData(
+    ys = [] # lead address data
+    for y in range(2011,2011+1):
+        X = lead.model.data.LeadData(
                 year_min=y,
                 year_max=y,
                 month=1,
                 day=1,
                 address=True)
-        d.target = True
-        ds.append(d)
 
-    ps = bll6_forest() # predictions
-    for p in ps:
-        p.get_input('fit').target = True
-        p.get_input('mean').target = True
+        p = bll6_forest()[0]
+        mean = p.get_input('mean')
+        fit = p.get_input('fit')
 
-    return ds + ps
- 
+        X_impute = Construct(data.impute,
+                             inputs=[X, MapResults([mean], 'value')]) 
+
+        y = model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
+        y.target = True
+        ys.append(y)
+
+    return ys    
+
 def address_data_today():
     """
     Builds address-level features today
