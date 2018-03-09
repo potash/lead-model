@@ -70,15 +70,24 @@ def address_data_today():
     Builds address-level features today
     """
     today = pd.Timestamp(os.environ['TODAY'])
-    d = lead.model.data.LeadData(
+    X = lead.model.data.LeadData(
             year_min=today.year,
             year_max=today.year,
             month=today.month,
             day=today.day,
             address=True)
-    d.target = True
 
-    return d
+    p = bll6_forest_today()
+    mean = p.get_input('mean')
+    fit = p.get_input('fit')
+
+    X_impute = Construct(data.impute,
+                         inputs=[X, MapResults([mean], 'value')]) 
+
+    y = model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
+    y.target = True
+
+    return y
     
 def forest(**update_kwargs):
     """
