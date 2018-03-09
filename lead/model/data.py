@@ -98,16 +98,18 @@ class LeadData(Step):
         left = left[self.index_columns + left_columns]
 
         logging.info('Binarizing community area and ward')
-        left = data.binarize(left, ['community_area_id', 'ward_id'], astype=self.dtype, drop=(not self.address))
+        left = data.binarize(left, 
+                             {'community_area_id':range(1,78), 'ward_id':range(1,51)},
+                             astype=self.dtype, drop=(not self.address))
 
         logging.info('Joining aggregations')
         X = left.join([a.result for a in self.aggregation_joins] + [acs])
         # delete all aggregation inputs so that memory can be freed
         for a in self.aggregation_joins: del a.result
 
-        if not self.address:
-            logging.info('Adding auxillary features')
-            add_kid_features(X, aux, self.dtype)
+        #if not self.address:
+        #    logging.info('Adding auxillary features')
+        #    add_kid_features(X, aux, self.dtype)
 
         X.set_index(self.index_columns, inplace=True)
 
