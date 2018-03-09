@@ -39,6 +39,33 @@ def bll6_forest_no_kid_wic_estimators():
             cv_search={'year':[2012]},
             transform_search={'aggregations':args, 'exclude': [['^kid_.*']]})
 
+def bll6_forest_quick():
+    """
+    A fast lead model that only uses 1 year of training data
+    """
+    today = pd.Timestamp(os.environ['TODAY'])
+    p = bll6_models(
+            forest(n_estimators=10),
+            dict(year=today.year,
+                 month=today.month,
+                 day=today.day,
+                 train_years=1))[0]
+    return p
+
+def bll6_forest_quarterly():
+    """
+    Quarterly forest models
+    """
+    return bll6_models(forest(),
+        {'month':[1,4,7,10], 'year':range(2010,2014+1)})
+
+def bll6_forest_monthly():
+    """
+    Monthly forest models
+    """
+    return bll6_models(forest(),
+        {'month':range(1,13), 'year':range(2010,2014+1)})
+
 def bll6_svm():
     return models(model.svms())
 
