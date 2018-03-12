@@ -1,6 +1,7 @@
 from drain import data, step, model, data
 from drain.util import dict_product, make_list
 from drain.step import Call, Construct, MapResults
+from drain.data import ToHDF
 
 from itertools import product
 import pandas as pd
@@ -9,20 +10,42 @@ import os
 import lead.model.data
 import lead.model.transform
 import lead.model.cv
+import lead.model.score
 from lead.features import aggregations
 
-
-def bll6_forest():
-    """
-    The basic temporal cross-validation workflow
-    """
-    return bll6_models(forest(), dump_estimator=True)
+from .split import split
+from .item import GetItem, args_list
 
 
-def bll6_forest_today():
+def kid_predictions_past():
     """
-    The workflow used to construct a current model
-    Parses the environment variable TODAY using pd.Timestamp to set the date
+    Temporal cross validation workflow
+    """
+    ps = address_predictions_past()
+    w = []
+    for p in ps:
+        t = p.get_input('transform')
+        aux_test = Call('__getattr__', inputs=[MapResults([t], {'train':None, 'X':None, 'sample_weight':None, 'aux':'obj', 'test':'key'})])
+        s = lead.model.score.LeadScore(inputs=[MapResults([p, aux_test, GetItem(t, 'y')], ['scores', 'aux', 'y'])])
+        w.append(s)
+
+    return w
+
+
+def kid_predictions_today():
+    """
+    Predictions for kids today
+    """
+    p = address_predictions_today()[0]
+    t = p.get_input('transform')
+    aux_test = Call('__getattr__', inputs=[MapResults([t], {'train':None, 'X':None, 'sample_weight':None, 'aux':'obj', 'test':'key'})])
+    s = lead.model.score.LeadScore(inputs=[MapResults([p, aux_test, GetItem(t, 'y')], ['scores', 'aux', 'y'])])
+    return s
+
+
+def address_predictions_today():
+    """
+    Predictions for all addresses today
     """
     today = pd.Timestamp(os.environ['TODAY'])
     p = bll6_models(
@@ -30,64 +53,15 @@ def bll6_forest_today():
             dict(year=today.year,
                  month=today.month,
                  day=today.day),
-            dump_estimator=True)[0]
-    
-    # put the predictions into the database
-    tosql = data.ToSQL(table_name='predictions', if_exists='replace',
-            inputs=[MapResults([p], mapping=[{'y':'df', 'feature_importances':None}])])
-    tosql.target = True
-    return tosql
+            dump_estimator=True)
+    return p
 
-def address_data_past():
+
+def address_predictions_past():
     """
-    Builds address-level features for the past
-    Plus saves fitted models and means for the past
+    Predictions for addresses in the past (for cross validation)
     """
-    ys = [] # lead address data
-    for y in range(2011,2011+1):
-        X = lead.model.data.LeadData(
-                year_min=y,
-                year_max=y,
-                month=1,
-                day=1,
-                address=True)
-
-        p = bll6_forest()[0]
-        mean = p.get_input('mean')
-        fit = p.get_input('fit')
-
-        X_impute = Construct(data.impute,
-                             inputs=[X, MapResults([mean], 'value')]) 
-
-        y = model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
-        y.target = True
-        ys.append(y)
-
-    return ys    
-
-def address_data_today():
-    """
-    Builds address-level features today
-    """
-    today = pd.Timestamp(os.environ['TODAY'])
-    X = lead.model.data.LeadData(
-            year_min=today.year,
-            year_max=today.year,
-            month=today.month,
-            day=today.day,
-            address=True)
-
-    p = bll6_forest_today()
-    mean = p.get_input('mean')
-    fit = p.get_input('fit')
-
-    X_impute = Construct(data.impute,
-                         inputs=[X, MapResults([mean], 'value')]) 
-
-    y = model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
-    y.target = True
-
-    return y
+    return bll6_models(forest(), dump_estimator=True)
     
 def forest(**update_kwargs):
     """
@@ -139,8 +113,7 @@ def models(estimators, cv_search, transform_search, dump_estimator):
         estimators: collection of steps, each of which constructs an estimator
         cv_search: dictionary of arguments to LeadCrossValidate to search over
         transform_search: dictionary of arguments to LeadTransform to search over
-        dump_estimator: whether to dump the estimator (and the mean).
-            Necessary for re-using the model for more scoring later.
+        dump_estimator: whether to dump the estimator.
 
     Returns: a list drain.model.Predict steps constructed by taking the product of
         the estimators with the the result of drain.util.dict_product on each of
@@ -162,6 +135,7 @@ def models(estimators, cv_search, transform_search, dump_estimator):
                                                        'test':None, 'aux':None})])
         mean = Call('mean', inputs=[X_train])
         mean.name = 'mean'
+        mean.target = True
 
         X_impute = Construct(data.impute,
                              inputs=[MapResults([cv], {'aux':None, 'test':None, 'train':None}),
@@ -179,12 +153,38 @@ def models(estimators, cv_search, transform_search, dump_estimator):
         y = model.Predict(inputs=[fit, transform],
                 return_feature_importances=True)
         y.name = 'predict'
-        y.target = True
-
+        
         if dump_estimator:
-            mean.target = True
             fit.target = True
+        
+        X_test = lead.model.data.LeadData(
+            year_min=cv_args['year'],
+            year_max=cv_args['year'],
+            month=cv_args['month'],
+            day=cv_args['day'],
+            address=True)
 
+        # there are over 800k addresses
+        # to avoid running out of memory, we split into pieces for prediction
+        k = 4
+        pieces = list(map(str, range(k)))
+        X_split = Construct(split, inputs=[MapResults([X_test], {'X':'df'})], k=k)
+        tohdf = ToHDF(inputs = [MapResults([X_split], [pieces])])
+        tohdf.target = True
+
+        ys = []
+        for j in pieces:
+            X_impute = Construct(data.impute,
+                             inputs=[MapResults([Call('get', key=j, inputs=[tohdf])], 'X'),
+                                     MapResults([mean], 'value')]) 
+
+            y =model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
+            y.target = True
+            ys.append(GetItem(y, 'y'))
+
+        # concatenate the pieces
+        y = Construct(pd.concat, inputs=[MapResults([Construct(args_list, inputs=ys)], 'objs')])
+        y.target = True
         steps.append(y)
-
+        
     return steps

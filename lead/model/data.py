@@ -107,10 +107,6 @@ class LeadData(Step):
         # delete all aggregation inputs so that memory can be freed
         for a in self.aggregation_joins: del a.result
 
-        #if not self.address:
-        #    logging.info('Adding auxillary features')
-        #    add_kid_features(X, aux, self.dtype)
-
         X.set_index(self.index_columns, inplace=True)
 
         c = data.non_numeric_columns(X)
@@ -122,17 +118,3 @@ class LeadData(Step):
         else:
             aux.set_index(self.index_columns, inplace=True)
             return {'X':X, 'aux':aux}
-
-def add_kid_features(X, aux, dtype):
-    """
-    Adds kid features (age, date of birth, etc.) from the aux data
-    Args:
-        X: the DataFrame to which to add features
-        aux: the DataFrame from which to build the features
-        dtype: the dtype with which to add the features
-    """
-    X['kid_age'] = ((aux.date - aux.date_of_birth)/util.day).astype(dtype)
-    X['kid_date_of_birth_days'] = util.date_to_days(aux.date_of_birth).astype(dtype)
-    X['kid_date_of_birth_month'] = aux.date_of_birth.dt.month.astype(dtype)
-    X['kid_male'] = (aux.sex == 'M').astype(dtype)
-    X['kid_wic'] = (aux.first_wic_date < aux.date).fillna(False).astype(dtype)

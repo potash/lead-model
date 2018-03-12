@@ -9,7 +9,7 @@ from drain import util, aggregate, data
 from drain.step import Step
 from drain.aggregate import Aggregate, Count
 from drain.aggregation import SpacetimeAggregation
-from drain.data import FromSQL, Merge
+from drain.data import FromSQL
 
 day = np.timedelta64(1, 'D')
 

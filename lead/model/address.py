@@ -1,6 +1,6 @@
 from drain.step import Step
 from drain.util import timestamp, cross_join
-from drain.data import FromSQL, Merge
+from drain.data import FromSQL
 
 import pandas as pd
 import numpy as np
