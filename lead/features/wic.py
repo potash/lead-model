@@ -7,7 +7,7 @@ import numpy as np
 from drain import util, aggregate, data
 from drain.aggregate import Aggregate, Count, aggregate_counts, days
 from drain.aggregation import SpacetimeAggregation
-from drain.step import Construct
+from drain.step import Call
 from drain.data import FromSQL, binarize, binarize_sets, select_regexes
 from drain.util import list_filter_none, union
 
@@ -30,9 +30,9 @@ array_remove(array[pa_cde1_c, pa_cde2_c, pa_cde3_c, pa_cde4_c, pa_cde5_c], null)
 from enroll 
 """, tables=['aux.kid_wics', 'aux.kid_mothers'], parse_dates=['register_d', 'last_upd_d'])
 
-enroll2 = Construct(binarize, inputs=[enroll], category_classes=['employment', 'occupation', 'clinic'], min_freq=100)
+enroll2 = Call(binarize, inputs=[enroll], category_classes=['employment', 'occupation', 'clinic'], min_freq=100)
 
-enroll3 = Construct(binarize_sets, inputs=[enroll2], columns=['assistance', 'language'], cast=True, min_freq=100)
+enroll3 = Call(binarize_sets, inputs=[enroll2], columns=['assistance', 'language'], cast=True, min_freq=100)
 enroll3.target=True
 
 class EnrollAggregation(SpacetimeAggregation):
@@ -74,8 +74,8 @@ births = FromSQL(query="""
         """, tables=['aux.kids', 'aux.kid_mothers'], parse_dates=['date_of_birth'])
 
 
-births2 = Construct(binarize, inputs=[births], category_classes=['place_type', 'disposition'])
-births3 = Construct(binarize_sets, inputs=[births2], columns=['complication'], cast=True)
+births2 = Call(binarize, inputs=[births], category_classes=['place_type', 'disposition'])
+births3 = Call(binarize_sets, inputs=[births2], columns=['complication'], cast=True)
 births3.target = True
 
 class BirthAggregation(SpacetimeAggregation):
@@ -112,7 +112,7 @@ where date_of_birth - visit_d between -365 and 365
 """, tables=['aux.kids', 'aux.kid_mothers'], parse_dates=['date_of_birth', 'visit_d'])
 prenatal.target = True
 
-prenatal2 = Construct(binarize, inputs=[prenatal], category_classes=['service'])
+prenatal2 = Call(binarize, inputs=[prenatal], category_classes=['service'])
 
 class PrenatalAggregation(SpacetimeAggregation):
     def __init__(self, spacedeltas, dates, parallel=False):

@@ -1,22 +1,21 @@
 from drain import data
 from drain.util import day
-from drain.data import FromSQL, Merge
-from drain.step import Step
+from drain.data import FromSQL
+from drain.step import Step, Call
 from drain.aggregation import SpacetimeAggregation
 from drain.aggregate import Count, Fraction, Aggregate, days
 
 import pandas as pd
 
-tests = Merge(inputs=[
-    Merge(inputs=[
-        FromSQL(table='output.tests'), 
-        FromSQL(table='output.addresses')], on='address_id'),
+tests = Call(
+    Call(FromSQL(table='output.tests'), 'merge',
+        [FromSQL(table='output.addresses')], on='address_id'),
+        'merge',
     # get kid first bll6 and bll10 counts to calculate incidences
-    FromSQL("""
+    [FromSQL("""
         select kid_id, first_bll6_sample_date, first_bll10_sample_date 
         from output.kids
-    """)],
-on='kid_id')
+    """)], on='kid_id')
 tests.target = True
 
 class TestsAggregation(SpacetimeAggregation):

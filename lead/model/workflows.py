@@ -1,6 +1,6 @@
 from drain import data, step, model, data
 from drain.util import dict_product, make_list
-from drain.step import Call, Construct, MapResults
+from drain.step import Call, MapResults, GetItem
 from drain.data import ToHDF
 
 from itertools import product
@@ -14,8 +14,9 @@ import lead.model.score
 from lead.features import aggregations
 
 from .split import split
-from .item import GetItem, args_list
 
+def args_list(*args):
+    return args
 
 def kid_predictions_past():
     """
@@ -25,8 +26,10 @@ def kid_predictions_past():
     w = []
     for p in ps:
         t = p.get_input('transform')
-        aux_test = Call('__getattr__', inputs=[MapResults([t], {'train':None, 'X':None, 'sample_weight':None, 'aux':'obj', 'test':'key'})])
-        s = lead.model.score.LeadScore(inputs=[MapResults([p, aux_test, GetItem(t, 'y')], ['scores', 'aux', 'y'])])
+        s = lead.model.score.LeadScore(inputs=[MapResults(
+                [p, t], 
+                ['scores', {'train':None, 'X':None, 'sample_weight':None}])])
+        s.target = True
         w.append(s)
 
     return w
@@ -36,10 +39,12 @@ def kid_predictions_today():
     """
     Predictions for kids today
     """
-    p = address_predictions_today()[0]
+    p = address_predictions_today()
     t = p.get_input('transform')
-    aux_test = Call('__getattr__', inputs=[MapResults([t], {'train':None, 'X':None, 'sample_weight':None, 'aux':'obj', 'test':'key'})])
-    s = lead.model.score.LeadScore(inputs=[MapResults([p, aux_test, GetItem(t, 'y')], ['scores', 'aux', 'y'])])
+    s = lead.model.score.LeadScore(inputs=[MapResults(
+            [p, t], 
+            ['scores', {'train':None, 'X':None, 'sample_weight':None}])])
+    s.target = True
     return s
 
 
@@ -53,7 +58,7 @@ def address_predictions_today():
             dict(year=today.year,
                  month=today.month,
                  day=today.day),
-            dump_estimator=True)
+            dump_estimator=True)[0]
     return p
 
 
@@ -68,7 +73,6 @@ def forest(**update_kwargs):
     Returns a step constructing a scikit-learn RandomForestClassifier
     """
     kwargs = dict(
-        _class='sklearn.ensemble.RandomForestClassifier',
         n_estimators=2000,
         n_jobs=int(os.environ.get('N_JOBS', -1)),
         criterion='entropy',
@@ -78,7 +82,7 @@ def forest(**update_kwargs):
 
     kwargs.update(**update_kwargs)
 
-    return step.Construct(**kwargs)
+    return step.Call('sklearn.ensemble.RandomForestClassifier', **kwargs)
 
 def bll6_models(estimators, cv_search={}, transform_search={}, dump_estimator=False):
     """
@@ -89,7 +93,7 @@ def bll6_models(estimators, cv_search={}, transform_search={}, dump_estimator=Fa
 
     """
     cvd = dict(
-        year=range(2011, 2014+1),
+        year=range(2013, 2014+1),
         month=1,
         day=1,
         train_years=[6],
@@ -131,15 +135,14 @@ def models(estimators, cv_search, transform_search, dump_estimator):
         cv = lead.model.cv.LeadCrossValidate(**cv_args)
         cv.name = 'cv'
 
-        X_train = Call('__getitem__', inputs=[MapResults([cv], {'X':'obj', 'train':'key',
-                                                       'test':None, 'aux':None})])
-        mean = Call('mean', inputs=[X_train])
+        X_train = GetItem(GetItem(cv, 'X'), GetItem(cv, 'train'))
+        mean = Call(X_train, 'mean')
         mean.name = 'mean'
         mean.target = True
 
-        X_impute = Construct(data.impute,
-                             inputs=[MapResults([cv], {'aux':None, 'test':None, 'train':None}),
-                              MapResults([mean], 'value')])
+        X_impute = Call(data.impute,
+                        inputs=[MapResults([GetItem(cv, 'X'), mean], 
+                                           ['X', 'value'])])
 
         cv_imputed = MapResults([X_impute, cv], ['X', {'X':None}])
         cv_imputed.target = True
@@ -168,22 +171,22 @@ def models(estimators, cv_search, transform_search, dump_estimator):
         # to avoid running out of memory, we split into pieces for prediction
         k = 4
         pieces = list(map(str, range(k)))
-        X_split = Construct(split, inputs=[MapResults([X_test], {'X':'df'})], k=k)
+        X_split = Call(split, inputs=[MapResults([X_test], {'X':'df'})], k=k)
         tohdf = ToHDF(inputs = [MapResults([X_split], [pieces])])
         tohdf.target = True
 
         ys = []
         for j in pieces:
-            X_impute = Construct(data.impute,
-                             inputs=[MapResults([Call('get', key=j, inputs=[tohdf])], 'X'),
-                                     MapResults([mean], 'value')]) 
+            X_impute = Call(data.impute,
+                            inputs=[MapResults(Call(tohdf, 'get', key=j), 'X'),
+                                    MapResults([mean], 'value')]) 
 
-            y =model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
+            y = model.Predict(inputs=[fit, MapResults([X_impute], 'X')])
             y.target = True
             ys.append(GetItem(y, 'y'))
 
         # concatenate the pieces
-        y = Construct(pd.concat, inputs=[MapResults([Construct(args_list, inputs=ys)], 'objs')])
+        y = Call(pd.concat, inputs=[MapResults([Call(args_list, inputs=ys)], 'objs')])
         y.target = True
         steps.append(y)
         

@@ -1,6 +1,6 @@
-from drain.step import Step
+from drain.step import Step, Call
 from drain import util, data
-from drain.data import FromSQL, Merge
+from drain.data import FromSQL
 
 import pandas as pd
 import numpy as np
@@ -30,7 +30,7 @@ class LeadLeft(Step):
         """
         Step.__init__(self, month=month, day=day, year_min=year_min)
 
-        aux = Merge(on='kid_id', inputs=[kid_addresses, kids])
+        aux = Call(kid_addresses, 'merge', [kids], on='kid_id')
         self.inputs = [aux, addresses]
 
     def run(self, aux, addresses):

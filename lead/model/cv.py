@@ -64,11 +64,11 @@ class LeadCrossValidate(Step):
         today = util.timestamp(self.year, self.month, self.day)
         min_date = util.timestamp(self.year - self.train_years, self.month, self.day)
 
-        date = data.index_as_series(X, 'date')
+        date = X.index.to_frame().date
         X = X[date.between(min_date, today)]
         aux = aux[date.between(min_date,today)]
 
-        date = data.index_as_series(aux, 'date')
+        date = aux.index.to_frame().date
         train = (date < today) & (aux.address_min_date < today)
         test = date == today
 
@@ -107,7 +107,7 @@ def augment(y):
     """
     augment the aux matrix with variables that are useful for train and test queries
     """
-    y['age'] = (data.index_as_series(y, 'date') - y.date_of_birth) / util.day
+    y['age'] = (y.index.to_frame().date - y.date_of_birth) / util.day
     y['last_sample_age'] = (y.last_sample_date - y.date_of_birth) / util.day
     y['first_sample_age'] = (y.first_sample_date - y.date_of_birth) / util.day
     y['address_test_max_age'] = (y.address_test_max_date - y.date_of_birth) / util.day

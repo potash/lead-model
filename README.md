@@ -54,11 +54,11 @@ pip install -r requirements.txt
 ### 3. Run models using `drain`.
 To fit a current model and make predictions change to `./lead` and run:
 ```
-drain execute lead.model.workflows::bll6_forest_today ...
+drain execute -w lead.model.workflows.address_predictions_today ...
 ```
-Here `lead.model.workflows.bll6_forest_today` is a drain workflow, i.e. a function taking no arguments that returns collection of drain steps.
+Here `lead.model.workflows.address_predictions_today()` is a drain workflow, i.e. a function taking no arguments that returns collection of drain steps.
 
-For temporal cross validation use the `bll6_forest` workflow.
+For temporal cross validation use the `kid_predictions_past` workflow in the same module.
 
 # License
 

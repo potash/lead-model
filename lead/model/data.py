@@ -1,6 +1,6 @@
 from drain.step import Step, Call, MapResults
 from drain import util, data
-from drain.data import FromSQL, Merge
+from drain.data import FromSQL
 from drain.aggregation import SpacetimeAggregationJoin
 
 from lead.features import aggregations
@@ -62,8 +62,7 @@ class LeadData(Step):
         else:
             left_only = MapResults([left], {'aux':None})
 
-        acs = Call("astype", inputs=[ACS(inputs=[left_only])], 
-                   dtype=dtype)
+        acs = Call(ACS(inputs=[left_only]),  "astype", dtype=dtype)
         acs.target = True
 
         dates = tuple((date(y, month, day) for y in range(year_min, year_max+1)))
@@ -74,7 +73,7 @@ class LeadData(Step):
             aj = SpacetimeAggregationJoin(
                     inputs=[a, left_only],
                     lag=wic_lag if name.startswith('wic') else None)
-            aj = Call("astype", inputs=[aj], dtype=dtype)
+            aj = Call(aj, "astype", dtype=dtype)
             aj.target = True
             self.aggregation_joins.append(aj)
 

@@ -1,7 +1,7 @@
 from drain import data
-from drain.data import FromSQL, Merge, Revise
+from drain.data import FromSQL, Revise
 from drain.util import day
-from drain.step import Step
+from drain.step import Step, Call, MapResults
 from drain.aggregation import SpacetimeAggregation
 from drain.aggregate import Fraction, Count, Aggregate, Aggregator, days
 
@@ -38,7 +38,7 @@ def revise_kid_addresses(date):
         for i in kid_addresses.inputs[0].inputs: i.target = True
         for i in kids.inputs[0].inputs: i.target = True
 
-        return Merge(inputs=[kids, kid_addresses], on='kid_id')
+        return Call(kids, 'merge', [MapResults(kid_addresses, 'right')], on='kid_id')
 
 class KidsAggregation(SpacetimeAggregation):
     """
@@ -55,8 +55,7 @@ class KidsAggregation(SpacetimeAggregation):
             kid_addresses = revise_kid_addresses(date=dates[0])
             addresses = FromSQL(table='output.addresses')
             addresses.target = True
-            self.inputs = [Merge(inputs=[kid_addresses, addresses], 
-                    on='address_id')]
+            self.inputs =[Call(kid_addresses, 'merge', [MapResults(addresses, 'right')], on='address_id')]
 
     def get_aggregator(self, date, index, delta):
         df = self.get_data(date, delta)
