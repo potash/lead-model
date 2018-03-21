@@ -1,7 +1,7 @@
 from drain import data
-from drain.data import FromSQL, Merge, Revise
+from drain.data import FromSQL, Revise
 from drain.util import day
-from drain.step import Step
+from drain.step import Step, Call, MapResults
 from drain.aggregation import SpacetimeAggregation
 from drain.aggregate import Fraction, Count, Aggregate, Aggregator, days
 
@@ -38,7 +38,7 @@ def revise_kid_addresses(date):
         for i in kid_addresses.inputs[0].inputs: i.target = True
         for i in kids.inputs[0].inputs: i.target = True
 
-        return Merge(inputs=[kids, kid_addresses], on='kid_id')
+        return Call(kids, 'merge', [MapResults(kid_addresses, 'right')], on='kid_id')
 
 class KidsAggregation(SpacetimeAggregation):
     """
@@ -55,8 +55,7 @@ class KidsAggregation(SpacetimeAggregation):
             kid_addresses = revise_kid_addresses(date=dates[0])
             addresses = FromSQL(table='output.addresses')
             addresses.target = True
-            self.inputs = [Merge(inputs=[kid_addresses, addresses], 
-                    on='address_id')]
+            self.inputs =[Call(kid_addresses, 'merge', [MapResults(addresses, 'right')], on='address_id')]
 
     def get_aggregator(self, date, index, delta):
         df = self.get_data(date, delta)
@@ -72,17 +71,6 @@ class KidsAggregation(SpacetimeAggregation):
                 Aggregate(['test_address_count', 'address_count', 'test_count'],
                         'max', fname=False),
                 Aggregate(['max_bll'], 'max', fname=False),
-                # Comment out this and all other wic aggregates because they can't be lagged
-                # and they're not useful for predicting poisoning
-                #Aggregate(lambda k: k.last_wic_date == k.address_wic_max_date, 
-                #        'any', 'last_wic_address', fname=False),
-                #Aggregate(['address_wic_mother', 'address_wic_infant'], 'any', fname=False),
-                #Aggregate([days('address_wic_max_date', date),
-                #        days('address_wic_min_date', date),
-                #        days('last_wic_date', date),
-                #        days('first_wic_date', date)],
-                #        ['max'], ['address_wic_min_date', 'address_wic_max_date', 
-                #                  'last_wic_date', 'first_wic_date'], fname=False)
             ]
 
         sample_2y = lambda k: ((k.last_sample_date - k.date_of_birth)/day > 365*2) | (k.max_bll >= 6)
@@ -91,29 +79,20 @@ class KidsAggregation(SpacetimeAggregation):
         aggregates = [
             counts,
             Aggregate(['test_address_count', 'test_count', 'address_count'], 
-                    ['median', 'mean', 'min', 'max']),
+                    ['mean', 'max']),
 
             Count([lambda k: k.address_test_min_date.notnull(), 
                    lambda k: k.first_sample_date.notnull()], prop=True, 
                   name=['tested_here', 'tested_ever']),
 
             
-            #Count(lambda k: k.first_wic_date.notnull(), prop=True, name='wic'),
-
-            #Count([lambda k: k.address_wic_min_date.notnull() & k.address_test_min_date.notnull(),
-            #       lambda k: k.address_wic_min_date.notnull() & k.first_sample_date.notnull()],
-            #       name=['wic_tested_here', 'wic_tested_ever'], 
-            #       prop=lambda k: k.first_wic_date.notnull(), prop_name='wic'),
-            Aggregate([days('address_min_date', 'address_max_date'), 
-                       #days('address_wic_min_date', 'address_wic_max_date'), 
-                       days('address_test_min_date', 'address_test_max_date')],
-                       ['mean'], ['address_total_time', #'address_wic_time', 
-                        'address_test_time']),
+            Aggregate([days('address_min_date', 'address_max_date')],
+                       ['mean'], ['address_total_time']),
 
             # the first of these are kid level, not address-kid level
             # that means kids get double counted when aggregated to above the address level 
             # if they lived in multiple addresses on that e.g. census tract. oh well.
-            Aggregate(['max_bll', 'avg_bll', 'cumulative_bll', 'avg_cumulative_bll', 
+            Aggregate(['max_bll', 'avg_cumulative_bll', 
                        'mean_bll', 'address_max_bll', 'address_mean_bll'], 
                     ['mean', 'median', 'min', 'max']),
 
@@ -143,7 +122,6 @@ class KidsAggregation(SpacetimeAggregation):
         ]
         if delta == 'all':
             aggregates.extend([
-                #Aggregate(days('address_wic_min_date', date), ['min', 'max'], 'days_since_wic'),
                 Aggregate(days('date_of_birth', date), ['min', 'max', 'mean'], 'date_of_birth'),
             ])
 

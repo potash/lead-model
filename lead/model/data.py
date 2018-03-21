@@ -1,6 +1,6 @@
 from drain.step import Step, Call, MapResults
 from drain import util, data
-from drain.data import FromSQL, Merge
+from drain.data import FromSQL
 from drain.aggregation import SpacetimeAggregationJoin
 
 from lead.features import aggregations
@@ -23,7 +23,7 @@ class LeadData(Step):
     Address datasets contain one row per address. They are built primarily to
     be able to later quickly access the features for scoring.
     """
-    def __init__(self, month, day, year_min, year_max, wic_lag=None, dtype=None, address=False):
+    def __init__(self, month, day, year_min, year_max, wic_lag=None, dtype=None, address=False, left=None, index_columns=None):
         """
         Args:
             month: the month for feature generation
@@ -36,26 +36,33 @@ class LeadData(Step):
             dtype: the dtype to use for features. Defaults to np.float16 for memory efficiency.
             address: whether to build an address dataset. Defaults to False,
                 which builds a kid dataset.
+            left: optional Left step. if None, defaults to LeadLeft (when address=False) or LeadAddressLeft (when address=True)
+            index_columns: columns of left to use as index
         """
         if dtype is None:
             dtype = np.float16
 
         Step.__init__(self, month=month, day=day, 
                 year_min=year_min, year_max=year_max,
-                wic_lag=wic_lag, dtype=dtype, address=address)
+                wic_lag=wic_lag, dtype=dtype, address=address,
+                index_columns=index_columns)
 
-        if address:
-            left = LeadAddressLeft(month=month, day=day, year_min=year_min, year_max=year_max)
-            # left_only is left without aux
-            # in the address case it's the same as left
-            left_only = left
+        if left is None:
+            if address:
+                left = LeadAddressLeft(month=month, day=day, year_min=year_min, year_max=year_max)
+                # left_only is left without aux
+                # in the address case it's the same as left
+                left_only = left
+                self.index_columns = ['address', 'census_block_id', 'ward_id', 'community_area_id', 'date']
+            else:
+                left = LeadLeft(month=month, day=day, year_min=year_min)
+                left.target = True
+                left_only = MapResults([left], {'aux':None})
+                self.index_columns = ['kid_id', 'address_id', 'date']
         else:
-            left = LeadLeft(month=month, day=day, year_min=year_min)
-            left.target = True
             left_only = MapResults([left], {'aux':None})
 
-        acs = Call("astype", inputs=[ACS(inputs=[left_only])], 
-                   dtype=dtype)
+        acs = Call(ACS(inputs=[left_only]),  "astype", dtype=dtype)
         acs.target = True
 
         dates = tuple((date(y, month, day) for y in range(year_min, year_max+1)))
@@ -66,7 +73,7 @@ class LeadData(Step):
             aj = SpacetimeAggregationJoin(
                     inputs=[a, left_only],
                     lag=wic_lag if name.startswith('wic') else None)
-            aj = Call("astype", inputs=[aj], dtype=dtype)
+            aj = Call(aj, "astype", dtype=dtype)
             aj.target = True
             self.aggregation_joins.append(aj)
 
@@ -83,27 +90,23 @@ class LeadData(Step):
                 sample weights, and evaluation.
         """
         if self.address:
-            index_columns = ['address', 'census_block_id', 'ward_id', 'community_area_id', 'date']
             left_columns = ['address_lat', 'address_lng']
-        if not self.address:
-            index_columns = ['kid_id', 'address_id', 'date']
+        else:
             left_columns = ['ward_id', 'community_area_id', 'address_lat', 'address_lng']
 
-        left = left[index_columns + left_columns]
+        left = left[self.index_columns + left_columns]
 
         logging.info('Binarizing community area and ward')
-        left = data.binarize(left, ['community_area_id', 'ward_id'], astype=self.dtype, drop=(not self.address))
+        left = data.binarize(left, 
+                             {'community_area_id':range(1,78), 'ward_id':range(1,51)},
+                             astype=self.dtype, drop=(not self.address))
 
         logging.info('Joining aggregations')
         X = left.join([a.result for a in self.aggregation_joins] + [acs])
         # delete all aggregation inputs so that memory can be freed
         for a in self.aggregation_joins: del a.result
 
-        if not self.address:
-            logging.info('Adding auxillary features')
-            add_aux_features(X, aux, self.dtype)
-
-        X.set_index(index_columns, inplace=True)
+        X.set_index(self.index_columns, inplace=True)
 
         c = data.non_numeric_columns(X)
         if len(c) > 0:
@@ -112,18 +115,5 @@ class LeadData(Step):
         if self.address:
             return {'X':X}
         else:
-            aux.set_index(index_columns, inplace=True)
+            aux.set_index(self.index_columns, inplace=True)
             return {'X':X, 'aux':aux}
-
-def add_aux_features(X, aux, dtype):
-    """
-    Args:
-        X: the DataFrame to which to add features
-        aux: the DataFrame from which to build the features
-        dtype: the dtype with which to add the features
-    """
-    X['age'] = ((aux.date - aux.date_of_birth)/util.day).astype(dtype)
-    X['date_of_birth_days'] = util.date_to_days(aux.date_of_birth).astype(dtype)
-    X['date_of_birth_month'] = aux.date_of_birth.dt.month.astype(dtype)
-    X['male'] = (aux.sex == 'M').astype(dtype)
-    X['wic'] = (aux.first_wic_date < aux.date).fillna(False).astype(dtype)

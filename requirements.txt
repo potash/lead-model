@@ -1,2 +1,2 @@
-git+https://github.com/potash/drain
+drain==0.0.6
 git+https://github.com/potash/scikit-learn@merged/balanced-random-forest#egg=scikit-learn

@@ -3,14 +3,16 @@ from drain.aggregate import Count
 from drain.aggregation import SpacetimeAggregation
 from itertools import product
 
-KEYWORDS = ['water', 'paint', 'window', 'wall', 'porch', 'chip', 'flak', 'peel']
+KEYWORDS = (['water','window', 'wall', 'porch', '(paint|chip|flak|peel)'],
+            ['water','window','wall','porch','paint'])
+
 STATUS = (['OPEN', 'COMPLIED', 'NO ENTRY'],
           ['open', 'complied', 'no_entry'])
 
 KEYWORD_COLUMNS = str.join(', ', 
         ("violation_description ~* '{0}' "
-         "or violation_inspector_comments ~* '{0}' AS {0}".format(k) 
-            for k in KEYWORDS))
+         "or violation_inspector_comments ~* '{0}' AS {1}".format(*k) 
+            for k in zip(*KEYWORDS)))
 
 STATUS_COLUMNS = str.join(', ',
         ("violation_status = '{0}' AS {1}".format(*s) 
@@ -37,11 +39,11 @@ class ViolationsAggregation(SpacetimeAggregation):
     def get_aggregates(self, date, data):
         aggregates = [
             Count(),
-            Count(KEYWORDS, prop=True),
+            Count(KEYWORDS[1], prop=True),
             Count(STATUS[1], prop=True),
             Count([lambda v,k=k,s=s: v[k] & v[s]
-                    for k,s in product(KEYWORDS, STATUS[1])], prop=True,
-                    name=['%s_%s' % p for p in product(KEYWORDS, STATUS[1])]
+                    for k,s in product(KEYWORDS[1], STATUS[1])], prop=True,
+                    name=['%s_%s' % p for p in product(KEYWORDS[1], STATUS[1])]
                  )
         ]
         

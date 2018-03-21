@@ -20,7 +20,51 @@ def bll6_forest_no_kid():
 
     return bll6_models(
             forest(), 
-            transform_search={'aggregations':args})
+            transform_search={'aggregations':args, 'exclude': [['^kid_.*']]})
+
+def bll6_forest_estimators():
+    return bll6_models([forest(n_estimators=1000*n) for n in (1,)])
+
+def bll6_forest_no_kid_wic_estimators():
+    """
+    No kid-level aggregations
+    """
+    args = deepcopy(aggregations.args)
+    for a in args.values():
+        if 'kid' in a:
+            a.pop('kid')
+
+    return bll6_models(
+            [forest(n_estimators=2000, random_state=n) for n in (0,1,2,3,4)], 
+            cv_search={'year':[2012]},
+            transform_search={'aggregations':args, 'exclude': [['^kid_.*']]})
+
+def bll6_forest_quick():
+    """
+    A fast lead model that only uses 1 year of training data
+    """
+    today = pd.Timestamp(os.environ['TODAY'])
+    p = bll6_models(
+            forest(n_estimators=10),
+            dict(year=today.year,
+                 month=today.month,
+                 day=today.day,
+                 train_years=1))[0]
+    return p
+
+def bll6_forest_quarterly():
+    """
+    Quarterly forest models
+    """
+    return bll6_models(forest(),
+        {'month':[1,4,7,10], 'year':range(2010,2014+1)})
+
+def bll6_forest_monthly():
+    """
+    Monthly forest models
+    """
+    return bll6_models(forest(),
+        {'month':range(1,13), 'year':range(2010,2014+1)})
 
 def bll6_svm():
     return models(model.svms())
