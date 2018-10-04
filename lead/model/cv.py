@@ -7,12 +7,13 @@ from lead.model.data import LeadData
 from datetime import date
 import pandas as pd
 import numpy as np
+import os
 import logging
 from drain.util import lru_cache
 
 
 YEAR_MIN = 2003
-YEAR_MAX = 2017
+YEAR_MAX = pd.Timestamp(os.environ['TODAY']).year
 
 @lru_cache(maxsize=10)
 def lead_data(month, day, wic_lag):
