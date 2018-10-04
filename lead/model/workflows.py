@@ -93,7 +93,7 @@ def bll6_models(estimators, cv_search={}, transform_search={}, dump_estimator=Fa
 
     """
     cvd = dict(
-        year=range(2013, 2014+1),
+        year=range(2011, 2014+1),
         month=1,
         day=1,
         train_years=[6],
